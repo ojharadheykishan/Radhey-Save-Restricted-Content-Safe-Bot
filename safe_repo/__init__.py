@@ -33,16 +33,28 @@ app = Client(
 
 async def restrict_bot():
     global BOT_ID, BOT_NAME, BOT_USERNAME
-    await app.start()
-    getme = await app.get_me()
-    BOT_ID = getme.id
-    BOT_USERNAME = getme.username
-    if getme.last_name:
-        BOT_NAME = getme.first_name + " " + getme.last_name
-    else:
-        BOT_NAME = getme.first_name
+    try:
+        await app.start()
+        getme = await app.get_me()
+        BOT_ID = getme.id
+        BOT_USERNAME = getme.username
+        if getme.last_name:
+            BOT_NAME = getme.first_name + " " + getme.last_name
+        else:
+            BOT_NAME = getme.first_name
+        logging.info("Bot initialized successfully")
+    except Exception as e:
+        logging.error(f"Failed to initialize bot: {e}")
+        # Handle the error appropriately - maybe exit or continue
+        raise
 
 
-loop.run_until_complete(restrict_bot())
+try:
+    loop.run_until_complete(restrict_bot())
+except Exception as e:
+    logging.error(f"Bot initialization failed: {e}")
+    # If initialization fails, we might want to exit
+    import sys
+    sys.exit(1)
 
 
