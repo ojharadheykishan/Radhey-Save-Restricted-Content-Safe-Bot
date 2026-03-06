@@ -3,14 +3,8 @@ import time
 import threading
 import requests
 from flask import Flask
-import asyncio
 
 app = Flask(__name__)
-
-# Import bot modules
-from safe_repo import app as bot_app
-from safe_repo import sex
-from safe_repo.__main__ import safe_repo_boot
 
 # Auto-ping settings
 AUTO_PING_ENABLED = True
@@ -63,19 +57,6 @@ def health_check():
     return "OK", 200
 
 
-def start_bot():
-    """Start the bot in a separate thread"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(safe_repo_boot())
-    except Exception as e:
-        print(f"Bot error: {str(e)}")
-        import traceback
-        print(f"Stack trace: {traceback.format_exc()}")
-    finally:
-        loop.close()
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     
@@ -91,10 +72,4 @@ if __name__ == "__main__":
             ping_thread.start()
             print(f"Auto-ping service started (interval: {AUTO_PING_INTERVAL} seconds)")
     
-    # Start the bot in a separate thread
-    bot_thread = threading.Thread(target=start_bot, daemon=True)
-    bot_thread.start()
-    print("Bot service started")
-    
-    # Start the Flask server
     app.run(host='0.0.0.0', port=port)
