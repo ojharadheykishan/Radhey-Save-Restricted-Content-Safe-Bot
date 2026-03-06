@@ -195,22 +195,40 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                     
                     thumb_path = await screenshot(file, duration, chatx)              
                     try:
-                        safe_repo = await app.send_video(
-                            chat_id=target_chat_id,
-                            video=file,
-                            caption=caption,
-                            supports_streaming=True,
-                            height=height,
-                            width=width,
-                            duration=duration,
-                            thumb=thumb_path,
-                            progress=progress_bar,
-                            progress_args=(
-                            '**__Uploading...__**\n',
-                            edit,
-                            time.time()
-                            )
-                           )
+                        # If thumb_path is None, don't send a thumbnail
+                        if thumb_path:
+                            safe_repo = await app.send_video(
+                                chat_id=target_chat_id,
+                                video=file,
+                                caption=caption,
+                                supports_streaming=True,
+                                height=height,
+                                width=width,
+                                duration=duration,
+                                thumb=thumb_path,
+                                progress=progress_bar,
+                                progress_args=(
+                                '**__Uploading...__**\n',
+                                edit,
+                                time.time()
+                                )
+                               )
+                        else:
+                            safe_repo = await app.send_video(
+                                chat_id=target_chat_id,
+                                video=file,
+                                caption=caption,
+                                supports_streaming=True,
+                                height=height,
+                                width=width,
+                                duration=duration,
+                                progress=progress_bar,
+                                progress_args=(
+                                '**__Uploading...__**\n',
+                                edit,
+                                time.time()
+                                )
+                               )
                         if msg.pinned_message:
                             try:
                                 await safe_repo.pin(both_sides=True)

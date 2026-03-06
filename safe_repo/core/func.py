@@ -228,27 +228,34 @@ def hhmmss(seconds):
 async def screenshot(video, duration, sender):
     if os.path.exists(f'{sender}.jpg'):
         return f'{sender}.jpg'
-    time_stamp = hhmmss(int(duration)/2)
-    out = dt.now().isoformat("_", "seconds") + ".jpg"
-    cmd = ["ffmpeg",
-           "-ss",
-           f"{time_stamp}", 
-           "-i",
-           f"{video}",
-           "-frames:v",
-           "1", 
-           f"{out}",
-           "-y"
-          ]
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    stdout, stderr = await process.communicate()
-    x = stderr.decode().strip()
-    y = stdout.decode().strip()
-    if os.path.isfile(out):
-        return out
-    else:
-        None  
+    try:
+        time_stamp = hhmmss(int(duration)/2)
+        out = dt.now().isoformat("_", "seconds") + ".jpg"
+        cmd = ["ffmpeg",
+               "-ss",
+               f"{time_stamp}", 
+               "-i",
+               f"{video}",
+               "-frames:v",
+               "1", 
+               f"{out}",
+               "-y"
+              ]
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        x = stderr.decode().strip()
+        y = stdout.decode().strip()
+        if os.path.isfile(out):
+            return out
+        else:
+            return None
+    except FileNotFoundError:
+        logger.error("ffmpeg not found. Please install ffmpeg and ensure it's in the system PATH.")
+        return None
+    except Exception as e:
+        logger.error(f"Error generating screenshot: {str(e)}")
+        return None 

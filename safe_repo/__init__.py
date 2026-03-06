@@ -14,6 +14,10 @@ loop = asyncio.get_event_loop()
 logging.basicConfig(
     format="[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s",
     level=logging.INFO,
+    handlers=[
+        logging.FileHandler("bot.log"),
+        logging.StreamHandler()
+    ]
 )
 
 # Initialize Telethon client (we'll start it later if needed)
@@ -45,7 +49,6 @@ async def restrict_bot():
         logging.info("Bot initialized successfully")
     except Exception as e:
         logging.error(f"Failed to initialize bot: {e}")
-        # Handle the error appropriately - maybe exit or continue
         raise
 
 
@@ -53,8 +56,14 @@ try:
     loop.run_until_complete(restrict_bot())
 except Exception as e:
     logging.error(f"Bot initialization failed: {e}")
-    # If initialization fails, we might want to exit
-    import sys
-    sys.exit(1)
+    logging.info("Retrying initialization in 5 seconds...")
+    import time
+    time.sleep(5)
+    try:
+        loop.run_until_complete(restrict_bot())
+    except Exception as retry_e:
+        logging.error(f"Retry failed: {retry_e}")
+        import sys
+        sys.exit(1)
 
 
