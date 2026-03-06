@@ -1,0 +1,42 @@
+# Session files
+*.session
+*.session-journal
+
+# Pyrogram session files
+:RestrictBot:.session
+:RestrictBot:.session-journal
+
+# Telethon session files
+sexrepo.session
+sexrepo.session-journal
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+env/
+.env/
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Log files
+*.log
+
+# Database files
+*.db
+*.sqlite3
+
+# Configuration files with sensitive data
+.env
+*.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
