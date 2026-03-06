@@ -8,5 +8,5 @@ RUN pip3 install --no-cache-dir -U -r requirements.txt
 WORKDIR /app
 COPY . .
 
-CMD ["./entrypoint.sh"]
+CMD python3 app.py
 
