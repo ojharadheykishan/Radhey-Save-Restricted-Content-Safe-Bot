@@ -8,5 +8,5 @@ RUN pip3 install --no-cache-dir -U -r requirements.txt
 WORKDIR /app
 COPY . .
 
-CMD flask run -h 0.0.0.0 -p $PORT & python3 -m safe_repo
+CMD ["./entrypoint.sh"]
 
