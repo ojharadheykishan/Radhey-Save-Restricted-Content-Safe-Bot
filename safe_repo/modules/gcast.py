@@ -1,10 +1,12 @@
 #safe_repo
 
 import asyncio
+import traceback
 from pyrogram import filters
 from config import OWNER_ID
 from safe_repo import app
 from safe_repo.core.mongo.users_db import get_users
+from pyrogram.errors import InputUserDeactivated, UserIsBlocked, PeerIdInvalid, FloodWait
 
 async def send_msg(user_id, message):
     try:
