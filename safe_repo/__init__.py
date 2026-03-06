@@ -16,7 +16,8 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
-sex = TelegramClient('sexrepo', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+# Initialize Telethon client (we'll start it later if needed)
+sex = TelegramClient('sexrepo', API_ID, API_HASH)
 
 app = Client(
     ":RestrictBot:",

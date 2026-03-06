@@ -32,6 +32,7 @@ env/
 # Database files
 *.db
 *.sqlite3
+*.json
 
 # Configuration files with sensitive data
 .env
