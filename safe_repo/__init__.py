@@ -30,9 +30,7 @@ app = Client(
     bot_token=BOT_TOKEN,
     workers=20,  # Increased number of workers for better performance
     sleep_threshold=0,  # Disable sleep mode completely
-    max_concurrent_transmissions=10,  # Increased concurrent transmissions
-    timeout=30,  # Add timeout for network operations
-    retry_max_tries=3  # Enable automatic retries
+    max_concurrent_transmissions=10  # Increased concurrent transmissions
 )
 
 
