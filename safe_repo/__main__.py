@@ -43,10 +43,12 @@ async def safe_repo_boot():
         # Start the background task for checking expired users
         asyncio.create_task(schedule_expiry_check())
 
+        # Keep bot running indefinitely
         await idle()
-        logger.info("»» ɢᴏᴏᴅ ʙʏᴇ ! sᴛᴏᴘᴘɪɴɢ ʙᴏᴛ.")
+        logger.warning("Bot idle loop exited")
+        
     except Exception as e:
-        logger.error(f"Critical error in bot boot: {str(e)}")
+        logger.error(f"Critical error in bot boot: {str(e)}", exc_info=True)
         # Restart the bot after 5 seconds
         logger.info("Restarting bot in 5 seconds...")
         await asyncio.sleep(5)
@@ -58,7 +60,7 @@ if __name__ == "__main__":
     try:
         loop.run_until_complete(safe_repo_boot())
     except Exception as e:
-        logger.error(f"Bot crashed: {str(e)}")
+        logger.error(f"Bot crashed: {str(e)}", exc_info=True)
         logger.info("Restarting bot in 5 seconds...")
         import time
         time.sleep(5)
