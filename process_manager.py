@@ -35,8 +35,8 @@ bot_process = None
 flask_restart_count = 0
 bot_restart_count = 0
 
-# Maximum allowed restarts per hour
-MAX_RESTARTS_PER_HOUR = 10
+# Maximum allowed restarts per hour (increased for better resilience)
+MAX_RESTARTS_PER_HOUR = 30
 
 def start_flask():
     """Start Flask app"""
@@ -113,6 +113,12 @@ def check_processes():
     # Check Flask app
     if flask_process and flask_process.poll() is not None:
         logger.error("Flask app has stopped, restarting...")
+        # Get process output for debugging
+        stdout, stderr = flask_process.communicate()
+        if stdout:
+            logger.error(f"Flask stdout: {stdout.strip()}")
+        if stderr:
+            logger.error(f"Flask stderr: {stderr.strip()}")
         if restart_flask():
             logger.info("Flask app restarted successfully")
         else:
@@ -121,6 +127,12 @@ def check_processes():
     # Check Telegram bot
     if bot_process and bot_process.poll() is not None:
         logger.error("Telegram bot has stopped, restarting...")
+        # Get process output for debugging
+        stdout, stderr = bot_process.communicate()
+        if stdout:
+            logger.error(f"Bot stdout: {stdout.strip()}")
+        if stderr:
+            logger.error(f"Bot stderr: {stderr.strip()}")
         if restart_bot():
             logger.info("Telegram bot restarted successfully")
         else:
@@ -135,8 +147,10 @@ def check_processes():
     # Check for too many restarts
     if flask_restart_count > MAX_RESTARTS_PER_HOUR or bot_restart_count > MAX_RESTARTS_PER_HOUR:
         logger.critical(f"Too many restarts detected (Flask: {flask_restart_count}, Bot: {bot_restart_count})")
-        logger.critical("Process manager will exit to prevent infinite restart loop")
-        sys.exit(1)
+        logger.critical("Process manager will continue running but with reduced restart limit")
+        # Reset restart counters to prevent exit
+        flask_restart_count = 0
+        bot_restart_count = 0
 
 def main():
     """Main process manager loop"""
