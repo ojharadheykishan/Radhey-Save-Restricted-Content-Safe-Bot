@@ -1,0 +1,12 @@
+[ INFO/2026-03-10 14:21:10,415] pyrogram.connection.connection: Connecting...
+[ INFO/2026-03-10 14:21:10,469] pyrogram.connection.connection: Connected! Production DC5 - IPv4
+[ INFO/2026-03-10 14:21:10,470] pyrogram.session.session: NetworkTask started
+[ INFO/2026-03-10 14:21:10,806] pyrogram.session.session: Session initialized: Layer 158
+[ INFO/2026-03-10 14:21:10,807] pyrogram.session.session: Device: CPython 3.12.1 - Pyrogram 2.0.106
+[ INFO/2026-03-10 14:21:10,807] pyrogram.session.session: System: Linux 6.8.0-1044-azure (en)
+[ INFO/2026-03-10 14:21:10,809] pyrogram.session.session: Session started
+[ INFO/2026-03-10 14:21:10,897] pyrogram.session.session: PingTask started
+[ INFO/2026-03-10 14:21:11,055] pyrogram.dispatcher: Started 20 HandlerTasks
+[ INFO/2026-03-10 14:21:11,133] root: Bot initialized: Save restriction Bot By Rk (@Save096_Bot)
+[ INFO/2026-03-10 14:21:18,559] telethon.crypto.aes: cryptg detected, it will be used for encryption
+[ INFO/2026-03-10 14:21:19,621] __main__: »»»» ʙᴏᴛ ᴅᴇᴘʟᴏʏ sᴜᴄᴄᴇssғᴜʟʟʏ ✨ 🎉
