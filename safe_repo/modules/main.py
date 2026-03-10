@@ -75,6 +75,70 @@ async def single_link(_, message):
 
 users_loop = {}
 
+@app.on_message(filters.command("settings"))
+async def settings_command(_, message):
+    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    
+    buttons = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("Set Chat ID", callback_data='setchat'), InlineKeyboardButton("Set Rename Tag", callback_data='setrename')],
+            [InlineKeyboardButton("Caption", callback_data='setcaption'), InlineKeyboardButton("Replace Words", callback_data='setreplacement')],
+            [InlineKeyboardButton("Remove Words", callback_data='delete'), InlineKeyboardButton("Reset", callback_data='reset')],
+            [InlineKeyboardButton("Login", callback_data='addsession'), InlineKeyboardButton("Logout", callback_data='logout')],
+            [InlineKeyboardButton("Set Thumbnail", callback_data='setthumb'), InlineKeyboardButton("Remove Thumbnail", callback_data='remthumb')],
+            [InlineKeyboardButton("Report Errors", url="https://t.me/safe_repo")]
+        ]
+    )
+    
+    await message.reply_text(
+        text="Customize by your end and Configure your settings ...",
+        reply_markup=buttons
+    )
+
+
+@app.on_callback_query()
+async def callback_query_handler(_, callback_query):
+    user_id = callback_query.from_user.id
+    
+    if callback_query.data == b'setchat':
+        await callback_query.answer("Send me the ID of that chat:")
+        # We'll need to implement session management for this
+    elif callback_query.data == b'setrename':
+        await callback_query.answer("Send me the rename tag:")
+    elif callback_query.data == b'setcaption':
+        await callback_query.answer("Send me the caption:")
+    elif callback_query.data == b'setreplacement':
+        await callback_query.answer("Send me the replacement words in the format: 'WORD(s)' 'REPLACEWORD'")
+    elif callback_query.data == b'addsession':
+        await callback_query.answer("This method is deprecated ... use /login")
+    elif callback_query.data == b'delete':
+        await callback_query.answer("Send words separated by space to delete them from caption/filename ...")
+    elif callback_query.data == b'logout':
+        from safe_repo.modules.login import delete_session_files
+        files_deleted = await delete_session_files(user_id)
+        if files_deleted:
+            await callback_query.answer("Logged out and deleted session successfully.")
+        else:
+            await callback_query.answer("You are not logged in")
+    elif callback_query.data == b'setthumb':
+        await callback_query.answer('Please send the photo you want to set as the thumbnail.')
+    elif callback_query.data == b'reset':
+        try:
+            # Clear delete words for this user
+            from safe_repo.core.get_func import save_delete_words
+            save_delete_words(user_id, set())
+            await callback_query.answer("All words have been removed from your delete list.")
+        except Exception as e:
+            await callback_query.answer(f"Error clearing delete list: {e}")
+    elif callback_query.data == b'remthumb':
+        try:
+            import os
+            os.remove(f'{user_id}.jpg')
+            await callback_query.answer('Thumbnail removed successfully!')
+        except FileNotFoundError:
+            await callback_query.answer("No thumbnail found to remove.")
+
+
 @app.on_message(filters.command("batch"))
 async def batch_link(_, message):
     user_id = message.chat.id    

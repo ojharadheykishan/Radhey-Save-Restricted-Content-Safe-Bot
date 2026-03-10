@@ -6,7 +6,6 @@ import logging
 from pyromod import listen
 from pyrogram import Client
 from config import API_ID, API_HASH, BOT_TOKEN
-from telethon import TelegramClient
 
 
 loop = asyncio.get_event_loop()
@@ -27,9 +26,6 @@ app = Client(
     sleep_threshold=300,  # 5 minutes for large file transfers
     max_concurrent_transmissions=1  # Limit to 1 concurrent transfer to prevent timeouts
 )
-
-# Telethon client
-sex = TelegramClient('sexrepo', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 
 async def restrict_bot():
