@@ -3,7 +3,6 @@
 
 import asyncio
 import logging
-from pyromod import listen
 from pyrogram import Client
 from config import API_ID, API_HASH, BOT_TOKEN
 
@@ -24,8 +23,6 @@ app = Client(
     workers=10,  # Reduced from 20 to prevent resource exhaustion
     sleep_threshold=180,  # Reduced from 300s to 3 minutes for faster recovery
     max_concurrent_transmissions=1,  # Keep at 1 to prevent timeouts
-    reconnect_interval=5,  # Auto-reconnect interval in seconds
-    timeout=30,  # Increase timeout for API calls
     no_updates=False  # Ensure we receive all updates
 )
 
