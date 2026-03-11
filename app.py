@@ -57,19 +57,39 @@ def health_check():
     return "OK", 200
 
 
+def start_bot_process():
+    """Start the safe_repo bot in a watcher loop so it can auto-restart."""
+    import subprocess
+    import time
+
+    while True:
+        try:
+            print("Starting safe_repo bot process...")
+            bot_proc = subprocess.Popen(["python3", "-m", "safe_repo"])
+            bot_proc.wait()
+            print(f"safe_repo exited with code {bot_proc.returncode}, restarting in 5s...")
+        except Exception as e:
+            print(f"safe_repo launcher error: {e}")
+        time.sleep(5)
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    
+
+    # Start bot background launcher thread for Docker/Render
+    bot_thread = threading.Thread(target=start_bot_process, daemon=True)
+    bot_thread.start()
+
     # Determine the app URL for auto-ping
     # For Render, the URL will be provided in the RENDER_EXTERNAL_URL environment variable
     if 'RENDER_EXTERNAL_URL' in os.environ:
         APP_URL = os.environ['RENDER_EXTERNAL_URL']
         print(f"App URL: {APP_URL}")
-        
+
         # Start auto-ping background task
         if AUTO_PING_ENABLED:
             ping_thread = threading.Thread(target=auto_ping, daemon=True)
             ping_thread.start()
             print(f"Auto-ping service started (interval: {AUTO_PING_INTERVAL} seconds)")
-    
+
     app.run(host='0.0.0.0', port=port)

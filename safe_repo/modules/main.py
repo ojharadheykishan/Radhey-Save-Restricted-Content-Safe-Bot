@@ -149,12 +149,20 @@ async def batch_link(_, message):
     start = await app.ask(message.chat.id, text="Please send the start link.")
     start_id = start.text
     s = start_id.split("/")[-1]
-    cs = int(s)
+    try:
+        cs = int(s)
+    except ValueError:
+        await app.send_message(message.chat.id, "Invalid start link format. Please send a valid Telegram message link.")
+        return
     
     last = await app.ask(message.chat.id, text="Please send the end link.")
     last_id = last.text
     l = last_id.split("/")[-1]
-    cl = int(l)
+    try:
+        cl = int(l)
+    except ValueError:
+        await app.send_message(message.chat.id, "Invalid end link format. Please send a valid Telegram message link.")
+        return
 
     # Check if user is premium before enforcing batch size limit
     is_premium = await plans_db.check_premium(user_id)
