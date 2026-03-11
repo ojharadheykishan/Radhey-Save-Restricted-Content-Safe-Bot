@@ -47,8 +47,14 @@ async def safe_repo_boot():
         asyncio.create_task(schedule_expiry_check())
         asyncio.create_task(keep_alive_task())
 
+        # Start the Pyrogram client
+        from safe_repo import app
+        await app.start()
+        logger.info("Bot client started successfully")
+        
         await idle()
         logger.info("»» ɢᴏᴏᴅ ʙʏᴇ ! sᴛᴏᴘᴘɪɴɢ ʙᴏᴛ.")
+        await app.stop()
     except Exception as e:
         logger.error(f"Error in bot boot: {e}")
         # Attempt to restart the bot after 5 seconds

@@ -9,6 +9,7 @@ from config import API_ID, API_HASH, BOT_TOKEN
 
 loop = asyncio.get_event_loop()
 
+
 logging.basicConfig(
     format="[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s",
     level=logging.INFO,
@@ -30,7 +31,6 @@ app = Client(
 async def restrict_bot():
     global BOT_ID, BOT_NAME, BOT_USERNAME
     try:
-        await app.start()
         getme = await app.get_me()
         BOT_ID = getme.id
         BOT_USERNAME = getme.username
@@ -42,17 +42,5 @@ async def restrict_bot():
     except Exception as e:
         logging.error(f"Bot initialization failed: {e}")
         raise e
-
-
-# Run initialization
-try:
-    loop.run_until_complete(restrict_bot())
-except Exception as e:
-    logging.critical(f"Failed to start bot: {e}")
-    # Attempt to restart the bot
-    logging.info("Attempting to restart bot...")
-    import time
-    time.sleep(5)
-    loop.run_until_complete(restrict_bot())
 
 
