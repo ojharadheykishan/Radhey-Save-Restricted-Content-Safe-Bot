@@ -42,9 +42,17 @@ modules_imported = False
 async def safe_repo_boot():
     global modules_imported
     try:
+        logger.info(f"Boot called, modules_imported: {modules_imported}")
         if not modules_imported:
+            logger.info(f"Importing {len(ALL_MODULES)} modules...")
+            # Track imported modules
+            imported_modules = set()
             for all_module in ALL_MODULES:
-                importlib.import_module("safe_repo.modules." + all_module)
+                module_name = f"safe_repo.modules.{all_module}"
+                if module_name not in imported_modules:
+                    logger.info(f"Importing module: {all_module}")
+                    importlib.import_module(module_name)
+                    imported_modules.add(module_name)
             modules_imported = True
             logger.info("»»»» ʙᴏᴛ ᴅᴇᴘʟᴏʏ sᴜᴄᴄᴇssғᴜʟʟʏ ✨ 🎉")
 
