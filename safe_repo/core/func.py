@@ -95,7 +95,7 @@ PROGRESS_BAR = (
     "✅ Progress: {percent}%\n"
     "📊 Size: {current}/{total}\n"
     "⚡ Speed: {speed}/s | ⏱️ ETA: {eta}\n"
-    "💡 Bot made By Rk"
+    "Radhey"
 )
 
 

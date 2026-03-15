@@ -57,8 +57,8 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                 if msg.media:
                     if msg.media == MessageMediaType.WEB_PAGE:
                         target_chat_id = user_chat_ids.get(chatx, chatx)
-                        edit = await app.edit_message_text(target_chat_id, edit_id, "Cloning...")
-                        safe_repo = await app.send_message(sender, msg.text.markdown)
+                        edit = await app.edit_message_text(target_chat_id, edit_id, "Cloning...\nRadhey")
+                        safe_repo = await app.send_message(sender, f"{msg.text.markdown}\n\nRadhey")
                         if msg.pinned_message:
                             try:
                                 await safe_repo.pin(both_sides=True)
@@ -70,8 +70,8 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                 if not msg.media:
                     if msg.text:
                         target_chat_id = user_chat_ids.get(chatx, chatx)
-                        edit = await app.edit_message_text(target_chat_id, edit_id, "Cloning...")
-                        safe_repo = await app.send_message(sender, msg.text.markdown)
+                        edit = await app.edit_message_text(target_chat_id, edit_id, "Cloning...\nRadhey")
+                        safe_repo = await app.send_message(sender, f"{msg.text.markdown}\n\nRadhey")
                         if msg.pinned_message:
                             try:
                                 await safe_repo.pin(both_sides=True)
@@ -81,7 +81,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                         await edit.delete()
                         return
                 
-                edit = await app.edit_message_text(sender, edit_id, "Trying to Download...")
+                edit = await app.edit_message_text(sender, edit_id, "Trying to Download...\nRadhey")
                 # Add timeout and retry mechanism for downloads
                 max_retries = 3
                 retry_delay = 5  # seconds
@@ -152,7 +152,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
 
                 # CODES are hidden             
 
-                await edit.edit('Trying to Uplaod ...')
+                await edit.edit('Trying to Upload ...\nRadhey')
                 
                 if msg.media == MessageMediaType.VIDEO and msg.video.mime_type in ["video/mp4", "video/x-matroska"]:
 
@@ -162,6 +162,23 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                     duration= metadata['duration']
 
                     if duration <= 300:
+                        delete_words = load_delete_words(sender)
+                        custom_caption = get_user_caption_preference(sender)
+                        original_caption = msg.caption if msg.caption else ''
+                        final_caption = f"{original_caption}" if custom_caption else f"{original_caption}"
+                        lines = final_caption.split('\n')
+                        processed_lines = []
+                        for line in lines:
+                            for word in delete_words:
+                                line = line.replace(word, '')
+                            if line.strip():
+                                processed_lines.append(line.strip())
+                        final_caption = '\n'.join(processed_lines)
+                        replacements = load_replacement_words(sender)
+                        for word, replace_word in replacements.items():
+                            final_caption = final_caption.replace(word, replace_word)
+                        caption = f"{final_caption}\n\n__**{custom_caption}**__\nRadhey" if custom_caption else f"{final_caption}\nRadhey"
+                        
                         safe_repo = await app.send_video(chat_id=sender, video=file, caption=caption, height=height, width=width, duration=duration, thumb=None, progress=progress_bar, progress_args=('**UPLOADING:**\n', edit, time.time())) 
                         if msg.pinned_message:
                             try:
@@ -187,7 +204,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                     replacements = load_replacement_words(sender)
                     for word, replace_word in replacements.items():
                         final_caption = final_caption.replace(word, replace_word)
-                    caption = f"{final_caption}\n\n__**{custom_caption}**__" if custom_caption else f"{final_caption}"
+                    caption = f"{final_caption}\n\n__**{custom_caption}**__\nRadhey" if custom_caption else f"{final_caption}\nRadhey"
 
                     target_chat_id = user_chat_ids.get(chatx, chatx)
                     
@@ -221,7 +238,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                     os.remove(file)
                         
                 elif msg.media == MessageMediaType.PHOTO:
-                    await edit.edit("**`Uploading photo...`")
+                    await edit.edit("**`Uploading photo...`**\nRadhey")
                     delete_words = load_delete_words(sender)
                     custom_caption = get_user_caption_preference(sender)
                     original_caption = msg.caption if msg.caption else ''
@@ -237,7 +254,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                     replacements = load_replacement_words(sender)
                     for word, replace_word in replacements.items():
                         final_caption = final_caption.replace(word, replace_word)
-                    caption = f"{final_caption}\n\n__**{custom_caption}**__" if custom_caption else f"{final_caption}"
+                    caption = f"{final_caption}\n\n__**{custom_caption}**__\nRadhey" if custom_caption else f"{final_caption}\nRadhey"
 
                     target_chat_id = user_chat_ids.get(sender, sender)
                     safe_repo = await app.send_photo(chat_id=target_chat_id, photo=file, caption=caption)
@@ -247,7 +264,8 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                         except Exception as e:
                             await safe_repo.pin()                
                     await safe_repo.copy(LOG_GROUP)
-                else:
+                elif msg.media == MessageMediaType.DOCUMENT:
+                    await edit.edit("**`Uploading document...`**\nRadhey")
                     thumb_path = thumbnail(chatx)
                     delete_words = load_delete_words(sender)
                     custom_caption = get_user_caption_preference(sender)
@@ -264,7 +282,69 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                     replacements = load_replacement_words(chatx)
                     for word, replace_word in replacements.items():
                         final_caption = final_caption.replace(word, replace_word)
-                    caption = f"{final_caption}\n\n__**{custom_caption}**__" if custom_caption else f"{final_caption}"
+                    caption = f"{final_caption}\n\n__**{custom_caption}**__\nRadhey" if custom_caption else f"{final_caption}\nRadhey"
+
+                    target_chat_id = user_chat_ids.get(chatx, chatx)
+                    try:
+                        # Check if it's a PDF file
+                        if msg.document.mime_type == "application/pdf":
+                            safe_repo = await app.send_document(
+                                chat_id=target_chat_id,
+                                document=file,
+                                caption=caption,
+                                thumb=thumb_path,
+                                progress=progress_bar,
+                                progress_args=(
+                                '**`Uploading PDF...`**\n',
+                                edit,
+                                time.time()
+                                )
+                            )
+                        else:
+                            safe_repo = await app.send_document(
+                                chat_id=target_chat_id,
+                                document=file,
+                                caption=caption,
+                                thumb=thumb_path,
+                                progress=progress_bar,
+                                progress_args=(
+                                '**`Uploading document...`**\n',
+                                edit,
+                                time.time()
+                                )
+                            )
+                        
+                        if msg.pinned_message:
+                            try:
+                                await safe_repo.pin(both_sides=True)
+                            except Exception as e:
+                                await safe_repo.pin()
+
+                        await safe_repo.copy(LOG_GROUP)
+                    except Exception as e:
+                        logger.error(f"Error uploading document: {e}")
+                        await app.edit_message_text(sender, edit_id, f"Error uploading document: {str(e)}") 
+                    
+                    os.remove(file)
+                else:
+                    await edit.edit("**`Uploading media...`**\nRadhey")
+                    thumb_path = thumbnail(chatx)
+                    delete_words = load_delete_words(sender)
+                    custom_caption = get_user_caption_preference(sender)
+                    original_caption = msg.caption if msg.caption else ''
+                    final_caption = f"{original_caption}" if custom_caption else f"{original_caption}"
+                    lines = final_caption.split('\n')
+                    processed_lines = []
+                    for line in lines:
+                        for word in delete_words:
+                            line = line.replace(word, '')
+                        if line.strip():
+                            processed_lines.append(line.strip())
+                    final_caption = '\n'.join(processed_lines)
+                    replacements = load_replacement_words(chatx)
+                    for word, replace_word in replacements.items():
+                        final_caption = final_caption.replace(word, replace_word)
+                    caption = f"{final_caption}\n\n__**{custom_caption}**__\nRadhey" if custom_caption else f"{final_caption}\nRadhey"
 
                     target_chat_id = user_chat_ids.get(chatx, chatx)
                     try:
@@ -346,7 +426,7 @@ async def copy_message_with_chat_id(client, sender, chat_id, message_id):
         for word, replace_word in replacements.items():
             final_caption = final_caption.replace(word, replace_word)
         
-        caption = f"{final_caption}\n\n__**{custom_caption}**__" if custom_caption else f"{final_caption}"
+        caption = f"{final_caption}\n\n__**{custom_caption}**__\nRadhey" if custom_caption else f"{final_caption}\nRadhey"
         
         if msg.media:
             if msg.media == MessageMediaType.VIDEO:

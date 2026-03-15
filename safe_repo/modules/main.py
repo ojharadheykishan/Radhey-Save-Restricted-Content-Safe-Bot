@@ -164,6 +164,10 @@ async def batch_link(_, message):
         await app.send_message(message.chat.id, "Invalid end link format. Please send a valid Telegram message link.")
         return
 
+    # Calculate total media to process
+    total_messages = cl - cs + 1
+    await app.send_message(message.chat.id, f"Total messages to process: {total_messages}\nRadhey")
+
     # Check if user is premium before enforcing batch size limit
     is_premium = await plans_db.check_premium(user_id)
     if not is_premium and cl - cs > 100:
@@ -189,15 +193,23 @@ async def batch_link(_, message):
 
         try:
             users_loop[user_id] = True
+            processed_count = 0
             
-            for i in range(int(s), int(l)):
+            for i in range(int(s), int(l) + 1):
                 if user_id in users_loop and users_loop[user_id]:
-                    msg = await app.send_message(message.chat.id, "Processing!")
+                    remaining = total_messages - processed_count
+                    msg = await app.send_message(message.chat.id, f"Processing! ({processed_count + 1}/{total_messages})\nRemaining: {remaining} messages\nRadhey")
                     try:
                         x = start_id.split('/')
                         y = x[:-1]
                         result = '/'.join(y)
                         url = f"{result}/{i}"
+                        
+                        # Process the message
+                        await get_msg(userbot, user_id, msg.id, url, 0, message)
+                        
+                        # Increment processed count
+                        processed_count += 1
                         link = get_link(url)
                         await get_msg(userbot, user_id, msg.id, link, 0, message)
                         sleep_msg = await app.send_message(message.chat.id, "Sleeping for 10 seconds to avoid flood...")
