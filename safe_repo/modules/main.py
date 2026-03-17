@@ -147,7 +147,11 @@ async def batch_link(_, message):
         return    
     
     start = await app.ask(message.chat.id, text="Please send the start link.")
-    start_id = start.text
+    start_id = get_link(start.text)
+    if not start_id:
+        await app.send_message(message.chat.id, "Invalid start link format. Please send a valid Telegram message link.")
+        return
+        
     s = start_id.split("/")[-1]
     try:
         cs = int(s)
@@ -156,7 +160,11 @@ async def batch_link(_, message):
         return
     
     last = await app.ask(message.chat.id, text="Please send the end link.")
-    last_id = last.text
+    last_id = get_link(last.text)
+    if not last_id:
+        await app.send_message(message.chat.id, "Invalid end link format. Please send a valid Telegram message link.")
+        return
+        
     l = last_id.split("/")[-1]
     try:
         cl = int(l)
