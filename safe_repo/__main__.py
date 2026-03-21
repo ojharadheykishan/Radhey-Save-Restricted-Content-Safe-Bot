@@ -39,17 +39,19 @@ async def schedule_expiry_check():
             logger.error(f"Error in expiry check: {e}")
         await asyncio.sleep(3600)  # Check every hour
 
+import sys
+
 async def safe_repo_boot():
     try:
         logger.info(f"Importing {len(ALL_MODULES)} modules...")
-        # Track imported modules
-        imported_modules = set()
+        # Track imported modules and prevent re-importing
         for all_module in ALL_MODULES:
             module_name = f"safe_repo.modules.{all_module}"
-            if module_name not in imported_modules:
+            if module_name not in sys.modules:
                 logger.info(f"Importing module: {all_module}")
                 importlib.import_module(module_name)
-                imported_modules.add(module_name)
+            else:
+                logger.debug(f"Module already imported: {all_module}")
         logger.info("»»»» ʙᴏᴛ ᴅᴇᴘʟᴏʏ sᴜᴄᴄᴇssғᴜʟʟʏ ✨ 🎉")
 
         # Start background tasks
