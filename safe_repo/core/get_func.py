@@ -4,7 +4,6 @@ import asyncio
 import time
 import os
 import subprocess
-import requests
 from datetime import datetime as dt
 import logging
 

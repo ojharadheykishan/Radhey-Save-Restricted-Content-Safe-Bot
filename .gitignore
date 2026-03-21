@@ -30,5 +30,11 @@ config.py
 .heroku/
 Procfile.windows
 
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
 # Docker
 docker-compose.override.yml
