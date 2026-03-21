@@ -58,27 +58,33 @@ def health_check():
 
 
 def start_bot_process():
-    """Start the safe_repo bot in a watcher loop so it can auto-restart."""
+    """Start the safe_repo bot."""
     import subprocess
     import time
 
-    while True:
-        try:
-            print("Starting safe_repo bot process...")
-            bot_proc = subprocess.Popen(["python3", "-m", "safe_repo"])
-            bot_proc.wait()
-            print(f"safe_repo exited with code {bot_proc.returncode}, restarting in 5s...")
-        except Exception as e:
-            print(f"safe_repo launcher error: {e}")
-        time.sleep(5)
+    try:
+        print("Starting safe_repo bot process...")
+        bot_proc = subprocess.Popen(["python3", "-m", "safe_repo"])
+        bot_proc.wait()
+        print(f"safe_repo exited with code {bot_proc.returncode}")
+    except Exception as e:
+        print(f"safe_repo launcher error: {e}")
 
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
 
-    # Start bot background launcher thread for Docker/Render
-    bot_thread = threading.Thread(target=start_bot_process, daemon=True)
-    bot_thread.start()
+    # Check if we're in Render environment
+    if 'RENDER' in os.environ:
+        print("Running in Render environment - starting bot directly")
+        start_bot_process()
+    else:
+        # Start Flask app only for health check (not for Render)
+        print("Running in local environment - starting Flask app")
+        
+        # Start bot background launcher thread for Docker/Render
+        bot_thread = threading.Thread(target=start_bot_process, daemon=True)
+        bot_thread.start()
 
     # Determine the app URL for auto-ping
     # For Render, the URL will be provided in the RENDER_EXTERNAL_URL environment variable
