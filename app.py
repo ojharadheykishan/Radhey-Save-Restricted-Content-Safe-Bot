@@ -74,17 +74,10 @@ def start_bot_process():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
 
-    # Check if we're in Render environment
-    if 'RENDER' in os.environ:
-        print("Running in Render environment - starting bot directly")
-        start_bot_process()
-    else:
-        # Start Flask app only for health check (not for Render)
-        print("Running in local environment - starting Flask app")
-        
-        # Start bot background launcher thread for Docker/Render
-        bot_thread = threading.Thread(target=start_bot_process, daemon=True)
-        bot_thread.start()
+    # Start bot process in background for all environments
+    # This ensures both Flask app (health check) and bot are running
+    bot_thread = threading.Thread(target=start_bot_process, daemon=True)
+    bot_thread.start()
 
     # Determine the app URL for auto-ping
     # For Render, the URL will be provided in the RENDER_EXTERNAL_URL environment variable
@@ -98,4 +91,6 @@ if __name__ == "__main__":
             ping_thread.start()
             print(f"Auto-ping service started (interval: {AUTO_PING_INTERVAL} seconds)")
 
+    # Always start Flask app to provide health check endpoint
+    print(f"Starting Flask app on port {port}")
     app.run(host='0.0.0.0', port=port)

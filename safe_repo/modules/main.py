@@ -224,8 +224,6 @@ async def batch_link(_, message):
                         
                         # Increment processed count
                         processed_count += 1
-                        link = get_link(url)
-                        await get_msg(userbot, user_id, msg.id, link, 0, message)
                         sleep_msg = await app.send_message(message.chat.id, "Sleeping for 10 seconds to avoid flood...")
                         await asyncio.sleep(8)
                         await sleep_msg.delete()

@@ -1,17 +1,19 @@
 #safe_repo
 
 import asyncio
+import traceback
 from pyrogram import filters
 from config import OWNER_ID
 from safe_repo import app
 from safe_repo.core.mongo.users_db import get_users
+from pyrogram.errors import FloodWait, InputUserDeactivated, UserIsBlocked, PeerIdInvalid
 
 async def send_msg(user_id, message):
     try:
         await message.copy(chat_id=user_id)
     except FloodWait as e:
         await asyncio.sleep(e.x)
-        return send_msg(user_id, message)
+        return await send_msg(user_id, message)
     except InputUserDeactivated:
         return 400, f"{user_id} : deactivated\n"
     except UserIsBlocked:
@@ -59,17 +61,20 @@ async def announced(_, message):
       to_send=message.reply_to_message.id
     if not message.reply_to_message:
       return await message.reply_text("Reply To Some Post To Broadcast")
+    exmsg = await message.reply_text("sᴛᴀʀᴛᴇᴅ ʙʀᴏᴀᴅᴄᴀsᴛɪɴɢ!")
     users = await get_users() or []
     print(users)
-    failed_user = 0
+    done_users = 0
+    failed_users = 0
   
     for user in users:
       try:
         await _.forward_messages(chat_id=int(user), from_chat_id=message.chat.id, message_ids=to_send)
+        done_users += 1
         await asyncio.sleep(1)
       except Exception as e:
-        failed_user += 1
-          
+        failed_users += 1
+            
     if failed_users == 0:
         await exmsg.edit_text(
             f"**sᴜᴄᴄᴇssғᴜʟʟʏ ʙʀᴏᴀᴅᴄᴀsᴛɪɴɢ ✅**\n\n**sᴇɴᴛ ᴍᴇssᴀɢᴇ ᴛᴏ** `{done_users}` **ᴜsᴇʀs**",

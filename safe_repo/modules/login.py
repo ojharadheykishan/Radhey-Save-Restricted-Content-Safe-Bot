@@ -73,9 +73,6 @@ async def generate_session(_, message):
         client = Client(f"session_{user_id}", api_id, api_hash)
         
         await client.connect()
-    except Exception as e:
-        await message.reply(f"❌ Failed to send OTP {e}. Please wait and try again later.")
-    try:
         code = await client.send_code(phone_number)
     except ApiIdInvalid:
         await message.reply('❌ Invalid combination of API ID and API HASH. Please restart the session.')

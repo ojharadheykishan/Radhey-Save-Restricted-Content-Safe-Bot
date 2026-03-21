@@ -25,17 +25,6 @@ async def remove_premium(user_id):
     data.pop(str(user_id), None)
     await asyncio.to_thread(_write, data)
 
-async def check_premium(user_id):
-    data = await asyncio.to_thread(_read)
-    entry = data.get(str(user_id))
-    if not entry:
-        return None
-    try:
-        expire = datetime.fromisoformat(entry.get("expire_date")).replace(tzinfo=timezone.utc)
-    except Exception:
-        expire = None
-    return {"_id": int(user_id), "expire_date": expire}
-
 from config import OWNER_ID
 
 # List of users with lifetime premium access
