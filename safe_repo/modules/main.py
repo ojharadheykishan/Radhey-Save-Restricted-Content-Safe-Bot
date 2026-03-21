@@ -96,33 +96,33 @@ async def settings_command(_, message):
     )
 
 
-@app.on_callback_query()
+@app.on_callback_query(filters.regex(r'^(setchat|setrename|setcaption|setreplacement|addsession|delete|logout|setthumb|reset|remthumb)$'))
 async def callback_query_handler(_, callback_query):
     user_id = callback_query.from_user.id
     
-    if callback_query.data == b'setchat':
+    if callback_query.data == 'setchat':
         await callback_query.answer("Send me the ID of that chat:")
         # We'll need to implement session management for this
-    elif callback_query.data == b'setrename':
+    elif callback_query.data == 'setrename':
         await callback_query.answer("Send me the rename tag:")
-    elif callback_query.data == b'setcaption':
+    elif callback_query.data == 'setcaption':
         await callback_query.answer("Send me the caption:")
-    elif callback_query.data == b'setreplacement':
+    elif callback_query.data == 'setreplacement':
         await callback_query.answer("Send me the replacement words in the format: 'WORD(s)' 'REPLACEWORD'")
-    elif callback_query.data == b'addsession':
+    elif callback_query.data == 'addsession':
         await callback_query.answer("This method is deprecated ... use /login")
-    elif callback_query.data == b'delete':
+    elif callback_query.data == 'delete':
         await callback_query.answer("Send words separated by space to delete them from caption/filename ...")
-    elif callback_query.data == b'logout':
+    elif callback_query.data == 'logout':
         from safe_repo.modules.login import delete_session_files
         files_deleted = await delete_session_files(user_id)
         if files_deleted:
             await callback_query.answer("Logged out and deleted session successfully.")
         else:
             await callback_query.answer("You are not logged in")
-    elif callback_query.data == b'setthumb':
+    elif callback_query.data == 'setthumb':
         await callback_query.answer('Please send the photo you want to set as the thumbnail.')
-    elif callback_query.data == b'reset':
+    elif callback_query.data == 'reset':
         try:
             # Clear delete words for this user
             from safe_repo.core.get_func import save_delete_words
@@ -130,7 +130,7 @@ async def callback_query_handler(_, callback_query):
             await callback_query.answer("All words have been removed from your delete list.")
         except Exception as e:
             await callback_query.answer(f"Error clearing delete list: {e}")
-    elif callback_query.data == b'remthumb':
+    elif callback_query.data == 'remthumb':
         try:
             import os
             os.remove(f'{user_id}.jpg')

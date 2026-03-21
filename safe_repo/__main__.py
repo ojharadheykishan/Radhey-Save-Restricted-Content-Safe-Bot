@@ -37,24 +37,18 @@ async def schedule_expiry_check():
             logger.error(f"Error in expiry check: {e}")
         await asyncio.sleep(3600)  # Check every hour
 
-modules_imported = False
-
 async def safe_repo_boot():
-    global modules_imported
     try:
-        logger.info(f"Boot called, modules_imported: {modules_imported}")
-        if not modules_imported:
-            logger.info(f"Importing {len(ALL_MODULES)} modules...")
-            # Track imported modules
-            imported_modules = set()
-            for all_module in ALL_MODULES:
-                module_name = f"safe_repo.modules.{all_module}"
-                if module_name not in imported_modules:
-                    logger.info(f"Importing module: {all_module}")
-                    importlib.import_module(module_name)
-                    imported_modules.add(module_name)
-            modules_imported = True
-            logger.info("»»»» ʙᴏᴛ ᴅᴇᴘʟᴏʏ sᴜᴄᴄᴇssғᴜʟʟʏ ✨ 🎉")
+        logger.info(f"Importing {len(ALL_MODULES)} modules...")
+        # Track imported modules
+        imported_modules = set()
+        for all_module in ALL_MODULES:
+            module_name = f"safe_repo.modules.{all_module}"
+            if module_name not in imported_modules:
+                logger.info(f"Importing module: {all_module}")
+                importlib.import_module(module_name)
+                imported_modules.add(module_name)
+        logger.info("»»»» ʙᴏᴛ ᴅᴇᴘʟᴏʏ sᴜᴄᴄᴇssғᴜʟʟʏ ✨ 🎉")
 
         # Start background tasks
         asyncio.create_task(schedule_expiry_check())
@@ -82,12 +76,9 @@ async def safe_repo_boot():
         raise
 
 if __name__ == "__main__":
-    while True:
-        try:
-            loop.run_until_complete(safe_repo_boot())
-            break  # Exit loop if boot completed successfully (idle was interrupted)
-        except Exception as e:
-            logger.error(f"Critical error: {e}")
-            logger.info("Bot will not restart automatically to prevent duplicate handlers")
-            break  # Exit loop to prevent duplicate handlers
+    try:
+        loop.run_until_complete(safe_repo_boot())
+    except Exception as e:
+        logger.error(f"Critical error: {e}")
+        logger.info("Bot will not restart automatically to prevent duplicate handlers")
     logger.info("Bot process completed")
