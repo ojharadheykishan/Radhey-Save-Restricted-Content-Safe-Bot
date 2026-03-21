@@ -3,12 +3,14 @@
 import asyncio
 import importlib
 import logging
-import pyrogram.utils
+from aiojobs import create_scheduler
 from pyrogram import idle
 from safe_repo.modules import ALL_MODULES
-from aiojobs import create_scheduler
-pyrogram.utils.MIN_CHANNEL_ID = -1009999999999
 from safe_repo.core.mongo.plans_db import check_and_remove_expired_users
+
+# Fix Pyrogram channel ID limitation
+import pyrogram.utils
+pyrogram.utils.MIN_CHANNEL_ID = -1009999999999
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
