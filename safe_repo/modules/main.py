@@ -146,12 +146,43 @@ async def batch_link(_, message):
     if lol == 1:
         return    
     
-    start = await app.ask(message.chat.id, text="Please send the start link.")
-    start_id = get_link(start.text)
-    if not start_id:
-        await app.send_message(message.chat.id, "Invalid start link format. Please send a valid Telegram message link.")
-        return
+    text = message.text.strip()
+    parts = text.split()
+    
+    if len(parts) >= 3:
+        start_link = parts[1]
+        end_link = parts[2]
+        start_id = get_link(start_link)
+        if not start_id:
+            await app.send_message(message.chat.id, "Invalid start link format. Please send a valid Telegram message link.")
+            return
+        last_id = get_link(end_link)
+        if not last_id:
+            await app.send_message(message.chat.id, "Invalid end link format. Please send a valid Telegram message link.")
+            return
+    else:
+        start = await app.ask(message.chat.id, text="Please send the start link.")
+        # Check if user sent a valid message with text
+        if not start.text or not start.text.strip():
+            await app.send_message(message.chat.id, "No link provided. Please send a valid Telegram message link.")
+            return
         
+        start_id = get_link(start.text)
+        if not start_id:
+            await app.send_message(message.chat.id, "Invalid start link format. Please send a valid Telegram message link.")
+            return
+            
+        last = await app.ask(message.chat.id, text="Please send the end link.")
+        # Check if user sent a valid message with text
+        if not last.text or not last.text.strip():
+            await app.send_message(message.chat.id, "No link provided. Please send a valid Telegram message link.")
+            return
+        
+        last_id = get_link(last.text)
+        if not last_id:
+            await app.send_message(message.chat.id, "Invalid end link format. Please send a valid Telegram message link.")
+            return
+    
     # Extract message ID from start link (handle query parameters like ?single)
     s = start_id.split("/")[-1]
     if "?" in s:
@@ -162,12 +193,6 @@ async def batch_link(_, message):
         await app.send_message(message.chat.id, "Invalid start link format. Please send a valid Telegram message link.")
         return
     
-    last = await app.ask(message.chat.id, text="Please send the end link.")
-    last_id = get_link(last.text)
-    if not last_id:
-        await app.send_message(message.chat.id, "Invalid end link format. Please send a valid Telegram message link.")
-        return
-        
     # Extract message ID from end link (handle query parameters like ?single)
     l = last_id.split("/")[-1]
     if "?" in l:

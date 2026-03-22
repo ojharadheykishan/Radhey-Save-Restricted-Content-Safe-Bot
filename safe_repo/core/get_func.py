@@ -177,7 +177,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                             final_caption = final_caption.replace(word, replace_word)
                         caption = f"{final_caption}\n\n__**{custom_caption}**__\nRadhey" if custom_caption else f"{final_caption}\nRadhey"
                         
-                        safe_repo = await app.send_video(chat_id=sender, video=file, caption=caption, height=height, width=width, duration=duration, thumb=None, progress=progress_bar, progress_args=('**UPLOADING:**\n', edit, time.time())) 
+                        safe_repo = await app.send_video(chat_id=sender, video=file, caption=caption, height=height, width=width, duration=duration, thumb=None, progress=progress_bar, progress_args=('**UPLOADING:**\n', edit, time.time()))
                         if msg.pinned_message:
                             try:
                                 await safe_repo.pin(both_sides=True)
@@ -206,33 +206,40 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
 
                     target_chat_id = user_chat_ids.get(chatx, chatx)
                     
-                    thumb_path = await screenshot(file, duration, chatx)              
-                    try:
-                        safe_repo = await app.send_video(
-                            chat_id=target_chat_id,
-                            video=file,
-                            caption=caption,
-                            supports_streaming=True,
-                            height=height,
-                            width=width,
-                            duration=duration,
-                            thumb=thumb_path,
-                            progress=progress_bar,
-                            progress_args=(
-                            '**__Uploading...__**\n',
-                            edit,
-                            time.time()
-                            )
-                           )
-                        if msg.pinned_message:
-                            try:
-                                await safe_repo.pin(both_sides=True)
-                            except Exception as e:
-                                await safe_repo.pin()
-                        await safe_repo.copy(LOG_GROUP)
-                    except:
-                        await app.edit_message_text(sender, edit_id, "The bot is not an admin in the specified chat...")
-
+                    # Avoid duplicate sending if target_chat_id is the same as sender
+                    if target_chat_id != sender:
+                        thumb_path = await screenshot(file, duration, chatx)
+                        try:
+                            safe_repo = await app.send_video(
+                                chat_id=target_chat_id,
+                                video=file,
+                                caption=caption,
+                                supports_streaming=True,
+                                height=height,
+                                width=width,
+                                duration=duration,
+                                thumb=thumb_path,
+                                progress=progress_bar,
+                                progress_args=(
+                                    '**__Uploading...__**\n',
+                                    edit,
+                                    time.time()
+                                    )
+                               )
+                            if msg.pinned_message:
+                                try:
+                                    await safe_repo.pin(both_sides=True)
+                                except Exception as e:
+                                    await safe_repo.pin()
+                            if target_chat_id != LOG_GROUP:
+                                await safe_repo.copy(LOG_GROUP)
+                        except:
+                            await app.edit_message_text(sender, edit_id, "The bot is not an admin in the specified chat...")
+                    else:
+                        # If target_chat_id equals sender, we already sent it above, just copy to LOG_GROUP if needed
+                        if sender != LOG_GROUP:
+                            await safe_repo.copy(LOG_GROUP)
+                    
                     os.remove(file)
                         
                 elif msg.media == MessageMediaType.PHOTO:
@@ -255,13 +262,20 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                     caption = f"{final_caption}\n\n__**{custom_caption}**__\nRadhey" if custom_caption else f"{final_caption}\nRadhey"
 
                     target_chat_id = user_chat_ids.get(sender, sender)
-                    safe_repo = await app.send_photo(chat_id=target_chat_id, photo=file, caption=caption)
-                    if msg.pinned_message:
-                        try:
-                            await safe_repo.pin(both_sides=True)
-                        except Exception as e:
-                            await safe_repo.pin()                
-                    await safe_repo.copy(LOG_GROUP)
+                    # Avoid duplicate sending if target_chat_id is the same as sender
+                    if target_chat_id != sender:
+                        safe_repo = await app.send_photo(chat_id=target_chat_id, photo=file, caption=caption)
+                        if msg.pinned_message:
+                            try:
+                                await safe_repo.pin(both_sides=True)
+                            except Exception as e:
+                                await safe_repo.pin()
+                        if target_chat_id != LOG_GROUP:
+                            await safe_repo.copy(LOG_GROUP)
+                    else:
+                        # If target_chat_id equals sender, we already sent it above, just copy to LOG_GROUP if needed
+                        if sender != LOG_GROUP:
+                            await safe_repo.copy(LOG_GROUP)
                 elif msg.media == MessageMediaType.DOCUMENT:
                     await edit.edit("**`Uploading document...`**\nRadhey")
                     thumb_path = thumbnail(chatx)
@@ -283,45 +297,51 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                     caption = f"{final_caption}\n\n__**{custom_caption}**__\nRadhey" if custom_caption else f"{final_caption}\nRadhey"
 
                     target_chat_id = user_chat_ids.get(chatx, chatx)
-                    try:
-                        # Check if it's a PDF file
-                        if msg.document.mime_type == "application/pdf":
-                            safe_repo = await app.send_document(
-                                chat_id=target_chat_id,
-                                document=file,
-                                caption=caption,
-                                thumb=thumb_path,
-                                progress=progress_bar,
-                                progress_args=(
-                                '**`Uploading PDF...`**\n',
-                                edit,
-                                time.time()
+                    # Avoid duplicate sending if target_chat_id is the same as sender
+                    if target_chat_id != sender:
+                        try:
+                            # Check if it's a PDF file
+                            if msg.document.mime_type == "application/pdf":
+                                safe_repo = await app.send_document(
+                                    chat_id=target_chat_id,
+                                    document=file,
+                                    caption=caption,
+                                    thumb=thumb_path,
+                                    progress=progress_bar,
+                                    progress_args=(
+                                        '**`Uploading PDF...`**\n',
+                                        edit,
+                                        time.time()
+                                        )
                                 )
-                            )
-                        else:
-                            safe_repo = await app.send_document(
-                                chat_id=target_chat_id,
-                                document=file,
-                                caption=caption,
-                                thumb=thumb_path,
-                                progress=progress_bar,
-                                progress_args=(
-                                '**`Uploading document...`**\n',
-                                edit,
-                                time.time()
-                                )
-                            )
-                        
-                        if msg.pinned_message:
-                            try:
-                                await safe_repo.pin(both_sides=True)
-                            except Exception as e:
-                                await safe_repo.pin()
-
-                        await safe_repo.copy(LOG_GROUP)
-                    except Exception as e:
-                        logger.error(f"Error uploading document: {e}")
-                        await app.edit_message_text(sender, edit_id, f"Error uploading document: {str(e)}") 
+                            else:
+                                safe_repo = await app.send_document(
+                                    chat_id=target_chat_id,
+                                    document=file,
+                                    caption=caption,
+                                    thumb=thumb_path,
+                                    progress=progress_bar,
+                                    progress_args=(
+                                        '**`Uploading document...`**\n',
+                                        edit,
+                                        time.time()
+                                        )
+                                    )
+                            
+                            if msg.pinned_message:
+                                try:
+                                    await safe_repo.pin(both_sides=True)
+                                except Exception as e:
+                                    await safe_repo.pin()
+                            if target_chat_id != LOG_GROUP:
+                                await safe_repo.copy(LOG_GROUP)
+                        except Exception as e:
+                            logger.error(f"Error uploading document: {e}")
+                            await app.edit_message_text(sender, edit_id, f"Error uploading document: {str(e)}")
+                    else:
+                        # If target_chat_id equals sender, we already sent it above, just copy to LOG_GROUP if needed
+                        if sender != LOG_GROUP:
+                            await safe_repo.copy(LOG_GROUP)
                     
                     os.remove(file)
                 else:
@@ -344,29 +364,34 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                         final_caption = final_caption.replace(word, replace_word)
                     caption = f"{final_caption}\n\n__**{custom_caption}**__\nRadhey" if custom_caption else f"{final_caption}\nRadhey"
 
-                    target_chat_id = user_chat_ids.get(chatx, chatx)
-                    try:
-                        safe_repo = await app.send_document(
-                            chat_id=target_chat_id,
-                            document=file,
-                            caption=caption,
-                            thumb=thumb_path,
-                            progress=progress_bar,
-                            progress_args=(
-                            '**`Uploading...`**\n',
-                            edit,
-                            time.time()
-                            )
-                        )
-                        if msg.pinned_message:
-                            try:
-                                await safe_repo.pin(both_sides=True)
-                            except Exception as e:
-                                await safe_repo.pin()
-
-                        await safe_repo.copy(LOG_GROUP)
-                    except:
-                        await app.edit_message_text(sender, edit_id, "The bot is not an admin in the specified chat.") 
+                    # Avoid duplicate sending if target_chat_id is the same as sender
+                    if target_chat_id != sender:
+                        try:
+                            safe_repo = await app.send_document(
+                                chat_id=target_chat_id,
+                                document=file,
+                                caption=caption,
+                                thumb=thumb_path,
+                                progress=progress_bar,
+                                progress_args=(
+                                    '**`Uploading...`**\n',
+                                    edit,
+                                    time.time()
+                                    )
+                                )
+                            if msg.pinned_message:
+                                try:
+                                    await safe_repo.pin(both_sides=True)
+                                except Exception as e:
+                                    await safe_repo.pin()
+                            if target_chat_id != LOG_GROUP:
+                                await safe_repo.copy(LOG_GROUP)
+                        except:
+                            await app.edit_message_text(sender, edit_id, "The bot is not an admin in the specified chat.")
+                    else:
+                        # If target_chat_id equals sender, we already sent it above, just copy to LOG_GROUP if needed
+                        if sender != LOG_GROUP:
+                            await safe_repo.copy(LOG_GROUP)
                     
                     os.remove(file)
                             
@@ -441,10 +466,18 @@ async def copy_message_with_chat_id(client, sender, chat_id, message_id):
             result = await client.copy_message(target_chat_id, chat_id, message_id)
 
         # Attempt to copy the result to the LOG_GROUP
-        try:
-            await result.copy(LOG_GROUP)
-        except Exception:
-            pass
+        # Avoid duplicate copying if target_chat_id is the same as sender
+        if target_chat_id != sender and target_chat_id != LOG_GROUP:
+            try:
+                await result.copy(LOG_GROUP)
+            except Exception:
+                pass
+        elif target_chat_id == sender and sender != LOG_GROUP:
+            # If target_chat_id equals sender, we need to copy to LOG_GROUP
+            try:
+                await result.copy(LOG_GROUP)
+            except Exception:
+                pass
             
         if msg.pinned_message:
             try:
