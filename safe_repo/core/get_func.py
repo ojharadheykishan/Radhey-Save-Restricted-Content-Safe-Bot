@@ -78,13 +78,22 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                         await safe_repo.copy(LOG_GROUP)
                         await edit.delete()
                         return
-                
+
                 edit = await app.edit_message_text(sender, edit_id, "Trying to Download...\nRadhey")
                 # Add timeout and retry mechanism for downloads
-                max_retries = 3
+                max_retries = 5
                 retry_delay = 5  # seconds
                 file = None
-                
+                download_name = getattr(msg, 'file_name', None)
+                if not download_name:
+                    download_name = getattr(getattr(msg, 'document', None), 'file_name', None)
+                if not download_name:
+                    download_name = getattr(getattr(msg, 'video', None), 'file_name', None)
+                if not download_name:
+                    download_name = getattr(getattr(msg, 'audio', None), 'file_name', None)
+                if not download_name:
+                    download_name = "media"
+
                 for attempt in range(max_retries):
                     try:
                         # Use larger timeout and progress updates for better reliability
@@ -92,32 +101,32 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                             userbot.download_media(
                                 msg,
                                 progress=progress_bar,
-                                progress_args=("**__Downloading: __**\n", edit, time.time())
+                                progress_args=(f"**__Downloading: {download_name}__\n", edit, time.time())
                             ),
-                            timeout=3600  # 1 hour timeout for large files
+                            timeout=7200  # 2 hour timeout for large files
                         )
                         break  # Success, exit loop
                     except asyncio.TimeoutError:
                         await app.edit_message_text(
-                            sender, 
-                            edit_id, 
+                            sender,
+                            edit_id,
                             f"Download timed out. Attempt {attempt + 1}/{max_retries}..."
                         )
                         if attempt < max_retries - 1:
                             await asyncio.sleep(retry_delay)
                     except Exception as e:
                         await app.edit_message_text(
-                            sender, 
-                            edit_id, 
+                            sender,
+                            edit_id,
                             f"Download failed: {str(e)}. Attempt {attempt + 1}/{max_retries}..."
                         )
                         if attempt < max_retries - 1:
                             await asyncio.sleep(retry_delay)
-                
+
                 if not file:
                     await app.edit_message_text(
-                        sender, 
-                        edit_id, 
+                        sender,
+                        edit_id,
                         "Failed to download media after multiple attempts. Please try again later."
                     )
                     return
@@ -177,7 +186,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                             final_caption = final_caption.replace(word, replace_word)
                         caption = f"{final_caption}\n\n__**{custom_caption}**__\nRadhey" if custom_caption else f"{final_caption}\nRadhey"
                         
-                        safe_repo = await app.send_video(chat_id=sender, video=file, caption=caption, height=height, width=width, duration=duration, thumb=None, progress=progress_bar, progress_args=('**UPLOADING:**\n', edit, time.time()))
+                        safe_repo = await app.send_video(chat_id=sender, video=file, caption=caption, height=height, width=width, duration=duration, thumb=None, progress=progress_bar, progress_args=(f'**__Uploading: {os.path.basename(file)}__\n', edit, time.time()))
                         if msg.pinned_message:
                             try:
                                 await safe_repo.pin(both_sides=True)
@@ -221,7 +230,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                                 thumb=thumb_path,
                                 progress=progress_bar,
                                 progress_args=(
-                                    '**__Uploading...__**\n',
+                                    f'**__Uploading: {os.path.basename(file)}__\n',
                                     edit,
                                     time.time()
                                     )
@@ -309,7 +318,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                                     thumb=thumb_path,
                                     progress=progress_bar,
                                     progress_args=(
-                                        '**`Uploading PDF...`**\n',
+                                        f'**__Uploading: {os.path.basename(file)}__\n',
                                         edit,
                                         time.time()
                                         )
@@ -322,7 +331,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                                     thumb=thumb_path,
                                     progress=progress_bar,
                                     progress_args=(
-                                        '**`Uploading document...`**\n',
+                                        f'**__Uploading: {os.path.basename(file)}__\n',
                                         edit,
                                         time.time()
                                         )
@@ -374,7 +383,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message):
                                 thumb=thumb_path,
                                 progress=progress_bar,
                                 progress_args=(
-                                    '**`Uploading...`**\n',
+                                    f'**__Uploading: {os.path.basename(file)}__\n',
                                     edit,
                                     time.time()
                                     )

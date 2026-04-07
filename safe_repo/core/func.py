@@ -90,13 +90,44 @@ async def get_seconds(time_string):
 
 
 PROGRESS_BAR = (
-    "📥 **Downloading** | 📤 **Uploading**\n"
-    "{bar}\n"
-    "✅ Progress: {percent}%\n"
-    "📊 Size: {current}/{total}\n"
-    "⚡ Speed: {speed}/s | ⏱️ ETA: {eta}\n"
-    "Radhey"
+    "{emoji} **{operation}:** `{filename}`\n"
+    "**File Type:** {file_type} | **Size:** {current} / {total}\n"
+    "{divider_top}\n"
+    "┃ {bar} {percent}%  ┃\n"
+    "┃ 🚀 **Speed:** {speed}/s      ┃\n"
+    "┃ ⏱ **ETA:** {eta} left    ┃\n"
+    "{divider_bottom}\n"
+    "`{filename}` • Radhey"
 )
+
+
+def get_file_type_emoji(filename):
+    """Detect file type and return appropriate emoji and type name"""
+    if not filename or filename == "Unknown":
+        return "📄", "Unknown"
+    
+    filename_lower = filename.lower()
+    
+    # Video files
+    if any(ext in filename_lower for ext in ['.mp4', '.mkv', '.mov', '.avi', '.flv', '.wmv', '.webm']):
+        return "🎬", "Video"
+    # Audio files
+    elif any(ext in filename_lower for ext in ['.mp3', '.wav', '.aac', '.flac', '.m4a', '.wma']):
+        return "🎵", "Audio"
+    # Document files
+    elif any(ext in filename_lower for ext in ['.pdf', '.doc', '.docx', '.txt', '.xls', '.xlsx']):
+        return "📑", "Document"
+    # Image files
+    elif any(ext in filename_lower for ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp']):
+        return "🖼", "Image"
+    # Archive files
+    elif any(ext in filename_lower for ext in ['.zip', '.rar', '.7z', '.tar', '.gz']):
+        return "📦", "Archive"
+    # Code files
+    elif any(ext in filename_lower for ext in ['.py', '.js', '.html', '.css', '.java', '.cpp']):
+        return "💻", "Code"
+    else:
+        return "📄", "File"
 
 
 async def progress_bar(current, total, ud_type, message, start):
@@ -107,37 +138,86 @@ async def progress_bar(current, total, ud_type, message, start):
         speed = 0 if diff == 0 else current / diff
         eta_seconds = 0 if speed == 0 else (total - current) / speed
 
-        bar_count = int(percentage // 2)  # 50 slots for more detailed progress
-        bar = "[" + "█" * bar_count + "░" * (50 - bar_count) + "]"
+        # Create progress bar with enhanced blocks
+        bar_length = 20
+        filled_length = int(bar_length * current // total) if total > 0 else 0
+        bar = "🟩" * filled_length + "⬜" * (bar_length - filled_length)
+
+        # Determine emoji and operation based on ud_type
+        if "Downloading" in ud_type:
+            emoji = "📥"
+            operation = "Downloading"
+            divider_top = "╭" + "━" * 38 + "╮"
+            divider_bottom = "╰" + "━" * 38 + "╯"
+        elif "Uploading" in ud_type:
+            emoji = "📤"
+            operation = "Uploading"
+            divider_top = "╭" + "━" * 38 + "╮"
+            divider_bottom = "╰" + "━" * 38 + "╯"
+        else:
+            emoji = "🔄"
+            operation = "Processing"
+            divider_top = "╭" + "━" * 38 + "╮"
+            divider_bottom = "╰" + "━" * 38 + "╯"
+
+        # Extract filename from ud_type if possible, otherwise use default
+        filename = "Unknown"
+        if ":" in ud_type:
+            try:
+                filename = ud_type.split(":", 1)[1].replace("**", "").replace("__", "").strip()
+            except Exception:
+                filename = ud_type.strip("*_: \n ")
+        else:
+            filename = ud_type.strip("*_: \n ")
+
+        if not filename:
+            filename = "Unknown"
+
+        # Get file type emoji and name
+        file_type_emoji, file_type_name = get_file_type_emoji(filename)
+        file_type_display = f"{file_type_emoji} {file_type_name}"
+
+        current_text = humanbytes(current)
+        total_text = humanbytes(total)
+
+        # Format ETA
+        eta_str = convert(int(eta_seconds)) if eta_seconds > 0 else "0:00:00"
 
         text = PROGRESS_BAR.format(
+            emoji=emoji,
+            operation=operation,
             bar=bar,
-            percent=round(percentage, 2),
-            current=humanbytes(current),
-            total=humanbytes(total),
+            percent=round(percentage, 1),
             speed=humanbytes(speed),
-            eta=convert(int(eta_seconds))
+            eta=eta_str,
+            filename=filename,
+            file_type=file_type_display,
+            current=current_text,
+            total=total_text,
+            divider_top=divider_top,
+            divider_bottom=divider_bottom
         )
 
         # Update message only if there's a significant change or at least 1 second has passed (more reliable)
-        if not hasattr(progress_bar, "last_update") or (now - progress_bar.last_update) > 1.0:
-            await message.edit(text=f"{ud_type}\n\n{text}")
-            progress_bar.last_update = now
+        last_update = getattr(progress_bar, 'last_update', 0.0)
+        if not last_update or (now - last_update) > 1.0:
+            await message.edit(text=text)
+            setattr(progress_bar, 'last_update', now)
     except Exception as e:
         # Log error but continue processing
         logger.error(f"Progress bar error: {e}")
         pass
 
 # Initialize last_update attribute
-progress_bar.last_update = 0.0
+setattr(progress_bar, 'last_update', 0.0)
 
 def humanbytes(size):
-    if not size:
-        return ""
+    if size is None or size == 0:
+        return "0 B"
     power = 2**10
     n = 0
     Dic_powerN = {0: ' ', 1: 'K', 2: 'M', 3: 'G', 4: 'T'}
-    while size > power:
+    while size > power and n < 4:
         size /= power
         n += 1
     return str(round(size, 2)) + " " + Dic_powerN[n] + 'B'
