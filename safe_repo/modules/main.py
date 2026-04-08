@@ -244,8 +244,8 @@ async def batch_link(_, message):
                         result = '/'.join(y)
                         url = f"{result}/{i}"
                         
-                        # Process the message
-                        await get_msg(userbot, user_id, msg.id, url, 0, message)
+                        # Process the message with batch flag set to True
+                        await get_msg(userbot, user_id, msg.id, url, 0, message, is_batch=True)
                         
                         # Increment processed count
                         processed_count += 1
@@ -259,6 +259,10 @@ async def batch_link(_, message):
                         continue
                 else:
                     break
+            
+            # Send final success message after all batches are processed
+            if processed_count > 0:
+                await app.send_message(message.chat.id, f"✅ **Batch Processing Complete!**\n\n📊 Successfully processed: **{processed_count}/{total_messages}** messages\n\nRadhey")
         except Exception as e:
             logger.error(f"Batch processing error: {e}")
             await app.send_message(message.chat.id, f"Error: {str(e)}")
