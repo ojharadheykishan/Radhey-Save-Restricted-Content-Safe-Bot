@@ -14,7 +14,13 @@ from pyrogram.errors import ChannelBanned, ChannelInvalid, ChannelPrivate, ChatI
 from pyrogram.enums import MessageMediaType
 from pyrogram.types import Message
 from safe_repo import app
-from safe_repo.core.func import progress_bar, video_metadata, screenshot
+from safe_repo.core.func import (
+    progress_bar, 
+    download_progress_bar,
+    upload_progress_bar,
+    video_metadata, 
+    screenshot
+)
 from safe_repo.core.mongo import db
 from config import LOG_GROUP
 
@@ -102,7 +108,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message, is_batch=False
                         file = await asyncio.wait_for(
                             userbot.download_media(
                                 msg,
-                                progress=progress_bar,
+                                progress=download_progress_bar,
                                 progress_args=(f"**__Downloading: {download_name}__\n", edit, time.time())
                             ),
                             timeout=7200  # 2 hour timeout for large files
@@ -188,7 +194,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message, is_batch=False
                             final_caption = final_caption.replace(word, replace_word)
                         caption = f"{final_caption}\n\n__**{custom_caption}**__\nRadhey" if custom_caption else f"{final_caption}\nRadhey"
                         
-                        safe_repo = await app.send_video(chat_id=sender, video=file, caption=caption, height=height, width=width, duration=duration, thumb=None, progress=progress_bar, progress_args=(f'**__Uploading: {os.path.basename(file)}__\n', edit, time.time()))
+                        safe_repo = await app.send_video(chat_id=sender, video=file, caption=caption, height=height, width=width, duration=duration, thumb=None, progress=upload_progress_bar, progress_args=(f'**__Uploading: {os.path.basename(file)}__\n', edit, time.time()))
                         if msg.pinned_message:
                             try:
                                 await safe_repo.pin(both_sides=True)
@@ -230,7 +236,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message, is_batch=False
                             width=width,
                             duration=duration,
                             thumb=thumb_path,
-                            progress=progress_bar,
+                            progress=upload_progress_bar,
                             progress_args=(
                                 f'**__Uploading: {os.path.basename(file)}__\n',
                                 edit,
@@ -308,7 +314,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message, is_batch=False
                                 document=file,
                                 caption=caption,
                                 thumb=thumb_path,
-                                progress=progress_bar,
+                                progress=upload_progress_bar,
                                 progress_args=(
                                     f'**__Uploading: {os.path.basename(file)}__\n',
                                     edit,
@@ -321,7 +327,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message, is_batch=False
                                 document=file,
                                 caption=caption,
                                 thumb=thumb_path,
-                                progress=progress_bar,
+                                progress=upload_progress_bar,
                                 progress_args=(
                                     f'**__Uploading: {os.path.basename(file)}__\n',
                                     edit,
@@ -368,7 +374,7 @@ async def get_msg(userbot, sender, edit_id, msg_link, i, message, is_batch=False
                             document=file,
                             caption=caption,
                             thumb=thumb_path,
-                            progress=progress_bar,
+                            progress=upload_progress_bar,
                             progress_args=(
                                 f'**__Uploading: {os.path.basename(file)}__\n',
                                 edit,
