@@ -28,7 +28,13 @@ async def get_youtube_info(url):
     try:
         import yt_dlp
         
-        ydl_opts = {'quiet': True, 'no_warnings': True, 'extract_flat': False}
+        ydl_opts = {
+            'quiet': True, 
+            'no_warnings': True, 
+            'extract_flat': False,
+            'ignoreerrors': True,
+            'nocheckcertificate': True,
+        }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -39,7 +45,13 @@ async def get_youtube_info(url):
 
 
 def get_available_qualities(info):
-    if not info or 'formats' not in info:
+    if not info:
+        return []
+    
+    if info.get('is_live') or info.get('live_status') == 'live':
+        return [("🔴 Live Stream", "best", 0)]
+    
+    if 'formats' not in info:
         return []
     
     qualities = []
@@ -62,7 +74,7 @@ def get_available_qualities(info):
     return sorted(qualities, key=lambda x: x[2], reverse=True)[:5]
 
 
-async def download_youtube_video(url, format_id=None, is_audio=False):
+async def download_youtube_video(url, format_id=None, is_audio=False, is_live=False):
     try:
         import yt_dlp
         
@@ -77,6 +89,17 @@ async def download_youtube_video(url, format_id=None, is_audio=False):
                 'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferredcodec': 'mp3', 'preferredformat': 'mp3'}],
                 'socket_timeout': 30,
                 'noprogress': False,
+            }
+        elif is_live:
+            ydl_opts = {
+                'format': 'best',
+                'outtmpl': os.path.join(DOWNLOADS_DIR, '%(title)s.%(ext)s'),
+                'quiet': False,
+                'no_warnings': False,
+                'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferredcodec': 'mp4'}],
+                'socket_timeout': 60,
+                'noprogress': False,
+                'live_flush_buffer': True,
             }
         else:
             format_str = f'{format_id}+bestaudio/best' if format_id else "bestvideo+bestaudio/best"
@@ -225,14 +248,17 @@ async def yt_quality_callback(client, callback_query):
         info = user_data['info']
         
         quality_label = None
+        is_live = False
         for q in user_data['qualities']:
             if q[1] == format_id:
                 quality_label = q[0]
+                if q[0] == "🔴 Live Stream":
+                    is_live = True
                 break
         
         await callback_query.edit_message_text(f"⏳ Downloading... {quality_label}")
         
-        file_path, dl_info = await asyncio.to_thread(download_youtube_video, url, format_id)
+        file_path, dl_info = await asyncio.to_thread(download_youtube_video, url, format_id, is_live=is_live)
         
         if not file_path or not os.path.exists(file_path):
             await callback_query.edit_message_text("❌ Download failed!")
