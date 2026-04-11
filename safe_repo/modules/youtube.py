@@ -18,7 +18,7 @@ from config import LOG_GROUP, OWNER_ID
 
 logger = logging.getLogger(__name__)
 
-FLOOD_WAIT_TIME = 0
+flood_state = {'wait_time': 0}
 
 yt_users = {}
 yt_waiting_for_link = {}
@@ -152,8 +152,8 @@ async def yt_command(client, message):
     user_id = message.chat.id
     
     try:
-        if FLOOD_WAIT_TIME > 0:
-            await message.reply_text(f"⏳ Please wait {FLOOD_WAIT_TIME} seconds...")
+        if flood_state['wait_time'] > 0:
+            await message.reply_text(f"⏳ Please wait {flood_state['wait_time']} seconds...")
             return
             
         welcome_text = """📥 **YouTube Downloader**
@@ -170,8 +170,7 @@ async def yt_command(client, message):
         yt_waiting_for_link[user_id] = True
     
     except FloodWait as fw:
-        global FLOOD_WAIT_TIME
-        FLOOD_WAIT_TIME = fw.x
+        flood_state['wait_time'] = fw.x
         logger.error(f"FloodWait: {fw.x} seconds")
         await message.reply_text(f"⏳ Please wait {fw.x} seconds...")
     except Exception as e:
@@ -191,8 +190,8 @@ async def handle_link(client, message):
         return
     
     try:
-        if FLOOD_WAIT_TIME > 0:
-            await message.reply_text(f"⏳ Please wait {FLOOD_WAIT_TIME} seconds...")
+        if flood_state['wait_time'] > 0:
+            await message.reply_text(f"⏳ Please wait {flood_state['wait_time']} seconds...")
             return
         del yt_waiting_for_link[user_id]
         
