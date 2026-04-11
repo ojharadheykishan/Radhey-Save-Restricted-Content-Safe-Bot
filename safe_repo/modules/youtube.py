@@ -11,11 +11,14 @@ import logging
 import re
 from pyrogram import filters, Client
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import FloodWait
 from safe_repo import app
 from safe_repo.core.func import upload_progress_bar, humanbytes
 from config import LOG_GROUP, OWNER_ID
 
 logger = logging.getLogger(__name__)
+
+FLOOD_WAIT_TIME = 0
 
 yt_users = {}
 yt_waiting_for_link = {}
@@ -149,6 +152,10 @@ async def yt_command(client, message):
     user_id = message.chat.id
     
     try:
+        if FLOOD_WAIT_TIME > 0:
+            await message.reply_text(f"⏳ Please wait {FLOOD_WAIT_TIME} seconds...")
+            return
+            
         welcome_text = """📥 **YouTube Downloader**
 
 👋 Welcome! Send me a YouTube link to download video or audio.
@@ -156,17 +163,19 @@ async def yt_command(client, message):
 🎬 I can help you:
 • Download Video in HD/SD quality
 • Extract MP3 Audio
-• Cut/Trim Videos
 
 💬 Just send a YouTube link below!"""
         
         await message.reply_text(welcome_text)
-        
         yt_waiting_for_link[user_id] = True
     
+    except FloodWait as fw:
+        global FLOOD_WAIT_TIME
+        FLOOD_WAIT_TIME = fw.x
+        logger.error(f"FloodWait: {fw.x} seconds")
+        await message.reply_text(f"⏳ Please wait {fw.x} seconds...")
     except Exception as e:
         logger.error(f"YT command error: {e}")
-        await message.reply_text(f"❌ Error: {str(e)[:100]}")
 
 
 @app.on_message(filters.text & filters.private)
@@ -182,6 +191,9 @@ async def handle_link(client, message):
         return
     
     try:
+        if FLOOD_WAIT_TIME > 0:
+            await message.reply_text(f"⏳ Please wait {FLOOD_WAIT_TIME} seconds...")
+            return
         del yt_waiting_for_link[user_id]
         
         processing_msg = await message.reply_text("🔍 Fetching video info...")

@@ -27,11 +27,12 @@ async def single_link(_, message):
     link = get_link(message.text) 
     
     userbot = None
+    msg = None
     try:
         join = await subscribe(_, message)
         if join == 1:
             return
-     
+      
         msg = await message.reply("Processing...")
         data = await db.get_data(user_id)
         
@@ -60,7 +61,10 @@ async def single_link(_, message):
             await msg.edit_text(f"Link: `{link}`\n\n**Error:** {str(e)}")
                      
     except FloodWait as fw:
-        await msg.edit_text(f'Try again after {fw.x} seconds due to floodwait from telegram.')
+        if msg:
+            await msg.edit_text(f'Try again after {fw.x} seconds due to floodwait from telegram.')
+        else:
+            await message.reply(f'Try again after {fw.x} seconds due to floodwait from telegram.')
     except Exception as e:
         logger.error(f"Main error: {e}")
         await app.send_message(user_id, f"Link: `{link}`\n\n**Error:** {str(e)}")
