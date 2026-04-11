@@ -185,8 +185,19 @@ async def handle_link(client, message):
     if user_id not in yt_waiting_for_link:
         return
     
-    if "youtube.com" not in text and "youtu.be" not in text:
+    # More flexible YouTube URL check - includes /live/, /shorts/, youtu.be, youtube.com
+    yt_patterns = ['youtube.com', 'youtu.be', 'youtu.co']
+    has_yt = any(p in text.lower() for p in yt_patterns)
+    
+    if not has_yt:
         await message.reply_text("❌ Invalid URL! Please send a valid YouTube link.")
+        return
+    
+    # Additional validation - must have video ID or be valid format
+    if '/live/' in text or '/shorts/' in text or 'watch?v=' in text or 'youtu.be/' in text or 'youtube.com/' in text:
+        pass  # Valid format
+    else:
+        await message.reply_text("❌ Invalid YouTube URL! Please send a valid video link.")
         return
     
     try:
@@ -200,7 +211,8 @@ async def handle_link(client, message):
         info = await asyncio.to_thread(get_youtube_info, text)
         
         if not info:
-            await processing_msg.edit_text("❌ Error! Couldn't fetch video.")
+            yt_waiting_for_link[user_id] = True  # Re-add to waiting
+            await processing_msg.edit_text("❌ Error! Couldn't fetch video. Please try again with a valid YouTube link.")
             return
         
         qualities = get_available_qualities(info)
