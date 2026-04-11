@@ -8,7 +8,12 @@ from pyrogram import enums
 from config import CHANNEL_ID, OWNER_ID 
 from safe_repo.core import script
 from safe_repo.core.mongo.plans_db import premium_users
-from safe_repo.core.progress_ui import generate_progress_ui, extract_filename
+from safe_repo.core.progress_ui import (
+    generate_progress_ui, 
+    generate_animated_progress_ui,
+    generate_super_animated_progress_ui,
+    extract_filename
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -92,7 +97,8 @@ async def get_seconds(time_string):
 
 async def progress_bar(current, total, ud_type, message, start):
     """
-    Update progress bar with beautiful Telegram UI
+    Update progress bar with ANIMATED and COLORFUL Telegram UI
+    Cycles through different animation styles
     """
     try:
         now = time.time()
@@ -108,12 +114,22 @@ async def progress_bar(current, total, ud_type, message, start):
         else:
             operation = "Processing"
         
-        # Generate beautiful progress UI
-        progress_text = generate_progress_ui(current, total, operation, filename, start)
+        # Use animated progress UI with rotating styles
+        elapsed = now - start if start else 1
         
-        # Update message only if there's been a significant change (throttle updates)
+        # Rotate between different styles based on time
+        style_cycle = int(elapsed / 5) % 4
+        styles = ['rainbow', 'fire', 'ice', 'tech']
+        current_style = styles[style_cycle]
+        
+        # Generate animated progress UI
+        progress_text = generate_animated_progress_ui(
+            current, total, operation, filename, start, style=current_style
+        )
+        
+        # Update message every 0.5 seconds for smooth animation
         last_update = getattr(progress_bar, 'last_update', 0.0)
-        if not last_update or (now - last_update) > 1.0:
+        if not last_update or (now - last_update) > 0.5:
             await message.edit(text=progress_text)
             setattr(progress_bar, 'last_update', now)
     except Exception as e:
@@ -121,8 +137,62 @@ async def progress_bar(current, total, ud_type, message, start):
         logger.error(f"Progress bar error: {e}")
         pass
 
-# Initialize last_update attribute
+
+async def download_progress_bar(current, total, ud_type, message, start):
+    """
+    Special progress bar for DOWNLOADS with super animation
+    """
+    try:
+        now = time.time()
+        
+        # Extract filename from ud_type
+        filename = extract_filename(ud_type)
+        
+        # Generate super animated progress UI
+        progress_text = generate_super_animated_progress_ui(
+            current, total, "Downloading", filename, start
+        )
+        
+        # Update message every 0.5 seconds for smooth animation
+        last_update = getattr(download_progress_bar, 'last_update', 0.0)
+        if not last_update or (now - last_update) > 0.5:
+            await message.edit(text=progress_text)
+            setattr(download_progress_bar, 'last_update', now)
+    except Exception as e:
+        # Log error but continue processing
+        logger.error(f"Download progress error: {e}")
+        pass
+
+
+async def upload_progress_bar(current, total, ud_type, message, start):
+    """
+    Special progress bar for UPLOADS with colorful animation
+    """
+    try:
+        now = time.time()
+        
+        # Extract filename from ud_type
+        filename = extract_filename(ud_type)
+        
+        # Generate animated progress UI with rainbow style
+        progress_text = generate_animated_progress_ui(
+            current, total, "Uploading", filename, start, style='rainbow'
+        )
+        
+        # Update message every 0.5 seconds for smooth animation
+        last_update = getattr(upload_progress_bar, 'last_update', 0.0)
+        if not last_update or (now - last_update) > 0.5:
+            await message.edit(text=progress_text)
+            setattr(upload_progress_bar, 'last_update', now)
+    except Exception as e:
+        # Log error but continue processing
+        logger.error(f"Upload progress error: {e}")
+        pass
+
+# Initialize last_update attributes
 setattr(progress_bar, 'last_update', 0.0)
+setattr(download_progress_bar, 'last_update', 0.0)
+setattr(upload_progress_bar, 'last_update', 0.0)
 
 def humanbytes(size):
     if size is None or size == 0:
