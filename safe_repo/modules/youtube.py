@@ -195,37 +195,41 @@ async def handle_link(client, message):
     user_id = message.chat.id
     text = message.text.strip()
     
+    # Check if user is waiting for link - if not, ignore
     if user_id not in yt_waiting_for_link:
         return
     
-    # More flexible YouTube URL check
-    text_lower = text.lower()
-    is_youtube = 'youtube.com' in text_lower or 'youtu.be' in text_lower
-    
-    if not is_youtube:
-        await message.reply_text("❌ Invalid URL! Please send a valid YouTube link.")
-        return
-    
-    # Check for valid video/playlist patterns
-    is_video = any(x in text_lower for x in ['watch?v=', '/live/', '/shorts/', '/v/', 'youtu.be/'])
-    is_playlist = 'playlist?list=' in text_lower or '/playlist' in text_lower
-    
-    if not is_video and not is_playlist:
-        await message.reply_text("❌ Invalid YouTube URL! Please send a valid video or playlist link.")
-        return
-    
     try:
-        if flood_state['wait_time'] > 0:
-            await message.reply_text(f"⏳ Please wait {flood_state['wait_time']} seconds...")
+        # More flexible YouTube URL check
+        text_lower = text.lower()
+        is_youtube = 'youtube.com' in text_lower or 'youtu.be' in text_lower
+        
+        if not is_youtube:
+            await message.reply_text("❌ Invalid URL! Please send a valid YouTube link.")
             return
+        
+        # Check for valid video/playlist patterns
+        is_video = any(x in text_lower for x in ['watch?v=', '/live/', '/shorts/', '/v/', 'youtu.be/'])
+        is_playlist = 'playlist?list=' in text_lower or '/playlist' in text_lower
+        
+        if not is_video and not is_playlist:
+            await message.reply_text("❌ Invalid YouTube URL! Please send a valid video or playlist link.")
+            return
+        
+        # Valid link - remove from waiting and process
         del yt_waiting_for_link[user_id]
         
+        if flood_state['wait_time'] > 0:
+            await message.reply_text(f"⏳ Please wait {flood_state['wait_time']} seconds...")
+            yt_waiting_for_link[user_id] = True
+            return
+        
         # Check if playlist
-        is_playlist = 'playlist?list=' in text.lower() or '/playlist' in text.lower()
+        is_playlist_url = 'playlist?list=' in text_lower or '/playlist' in text_lower
         
         processing_msg = await message.reply_text("🔍 Fetching info...")
         
-        if is_playlist:
+        if is_playlist_url:
             info = await asyncio.to_thread(get_playlist_info, text)
         else:
             info = await asyncio.to_thread(get_youtube_info, text)
