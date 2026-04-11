@@ -9,12 +9,25 @@ import time
 import asyncio
 import logging
 import re
+import json
 from pyrogram import filters, Client
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import FloodWait
 from safe_repo import app
 from safe_repo.core.func import upload_progress_bar, humanbytes
 from config import LOG_GROUP, OWNER_ID
+
+
+async def get_playlist_info(url):
+    try:
+        import yt_dlp
+        ydl_opts = {'quiet': True, 'no_warnings': True, 'extract_flat': True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return info
+    except Exception as e:
+        logger.error(f"Playlist info error: {e}")
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -193,17 +206,12 @@ async def handle_link(client, message):
         await message.reply_text("❌ Invalid URL! Please send a valid YouTube link.")
         return
     
-    # Check for valid video patterns
-    has_video_id = (
-        'watch?v=' in text_lower or 
-        '/live/' in text_lower or 
-        '/shorts/' in text_lower or
-        '/v/' in text_lower or
-        'youtu.be/' in text_lower
-    )
+    # Check for valid video/playlist patterns
+    is_video = any(x in text_lower for x in ['watch?v=', '/live/', '/shorts/', '/v/', 'youtu.be/'])
+    is_playlist = 'playlist?list=' in text_lower or '/playlist' in text_lower
     
-    if not has_video_id:
-        await message.reply_text("❌ Invalid YouTube URL! Please send a valid video link.")
+    if not is_video and not is_playlist:
+        await message.reply_text("❌ Invalid YouTube URL! Please send a valid video or playlist link.")
         return
     
     try:
@@ -212,15 +220,49 @@ async def handle_link(client, message):
             return
         del yt_waiting_for_link[user_id]
         
-        processing_msg = await message.reply_text("🔍 Fetching video info...")
+        # Check if playlist
+        is_playlist = 'playlist?list=' in text.lower() or '/playlist' in text.lower()
         
-        info = await asyncio.to_thread(get_youtube_info, text)
+        processing_msg = await message.reply_text("🔍 Fetching info...")
+        
+        if is_playlist:
+            info = await asyncio.to_thread(get_playlist_info, text)
+        else:
+            info = await asyncio.to_thread(get_youtube_info, text)
         
         if not info:
             yt_waiting_for_link[user_id] = True  # Re-add to waiting
-            await processing_msg.edit_text("❌ Error! Couldn't fetch video. Please try again with a valid YouTube link.")
+            await processing_msg.edit_text("❌ Error! Couldn't fetch. Please try again with a valid YouTube link.")
             return
         
+        # Check if playlist
+        if is_playlist or info.get('type') == 'playlist':
+            entries = info.get('entries', [])
+            playlist_title = info.get('title', 'Playlist')[:50]
+            
+            yt_users[user_id] = {
+                'url': text,
+                'info': info,
+                'type': 'playlist',
+                'msg_id': processing_msg.id
+            }
+            
+            buttons = [
+                [InlineKeyboardButton(f"📋 Download All ({len(entries)} videos)", callback_data="yt_playlist_all")],
+                [InlineKeyboardButton("📹 Download First 5", callback_data="yt_playlist_5")],
+                [InlineKeyboardButton("❌ Cancel", callback_data="yt_cancel")]
+            ]
+            
+            info_text = f"""📋 **Playlist Found**
+
+📌 {playlist_title}
+🎬 Total Videos: {len(entries)}
+
+Select an option:"""
+            await processing_msg.edit_text(info_text, reply_markup=InlineKeyboardMarkup(buttons))
+            return
+        
+        # Regular video
         qualities = get_available_qualities(info)
         
         if not qualities:
@@ -236,7 +278,8 @@ async def handle_link(client, message):
             'url': text,
             'info': info,
             'qualities': qualities,
-            'msg_id': processing_msg.id
+            'msg_id': processing_msg.id,
+            'type': 'video'
         }
         
         buttons = []
@@ -392,6 +435,58 @@ async def ytmp3_callback(client, callback_query):
         logger.error(f"MP3 callback error: {e}")
         await callback_query.answer(f"❌ Error: {str(e)[:50]}", show_alert=True)
 
+
+@app.on_callback_query(filters.regex(r"^yt_playlist_"))
+async def yt_playlist_callback(client, callback_query):
+    user_id = callback_query.from_user.id
+    data = callback_query.data
+    
+    try:
+        if user_id not in yt_users:
+            await callback_query.answer("❌ Session expired. Use /yt again", show_alert=True)
+            return
+        
+        user_data = yt_users[user_id]
+        url = user_data['url']
+        info = user_data['info']
+        entries = info.get('entries', [])
+        
+        if data == "yt_playlist_all":
+            count = len(entries)
+        else:  # yt_playlist_5
+            count = min(5, len(entries))
+        
+        await callback_query.edit_message_text(f"📥 Downloading {count} videos...")
+        
+        success = 0
+        for i, entry in enumerate(entries[:count]):
+            try:
+                video_url = f"https://www.youtube.com/watch?v={entry['id']}"
+                file_path, dl_info = await asyncio.to_thread(download_youtube_video, video_url)
+                
+                if file_path and os.path.exists(file_path):
+                    success += 1
+                    try:
+                        await app.send_video(chat_id=user_id, video=file_path, caption=f"📹 {dl_info.get('title', 'Video')}")
+                        os.remove(file_path)
+                    except:
+                        pass
+                
+                await asyncio.sleep(3)
+            except Exception as e:
+                logger.error(f"Playlist download error: {e}")
+                continue
+        
+        await callback_query.edit_message_text(f"✅ Done! Downloaded {success}/{count} videos.")
+        
+        if user_id in yt_users:
+            del yt_users[user_id]
+        
+        await callback_query.answer()
+    
+    except Exception as e:
+        logger.error(f"Playlist callback error: {e}")
+        await callback_query.answer(f"❌ Error: {str(e)[:50]}", show_alert=True)
 
 @app.on_callback_query(filters.regex(r"^yt_cancel$"))
 async def yt_cancel_callback(client, callback_query):
