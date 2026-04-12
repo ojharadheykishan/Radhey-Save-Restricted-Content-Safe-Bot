@@ -21,7 +21,17 @@ from config import LOG_GROUP, OWNER_ID
 async def get_playlist_info(url):
     try:
         import yt_dlp
-        ydl_opts = {'quiet': True, 'no_warnings': True, 'extract_flat': True}
+        ydl_opts = {
+            'quiet': True, 
+            'no_warnings': True, 
+            'extract_flat': True,
+            'ignoreerrors': True,
+            'nocheckcertificate': True,
+            'youtube_include_dash_manifest': False,
+            'youtube_include_hls_manifest': False,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'referer': 'https://www.youtube.com/',
+        }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             return info
@@ -50,6 +60,10 @@ async def get_youtube_info(url):
             'extract_flat': False,
             'ignoreerrors': True,
             'nocheckcertificate': True,
+            'youtube_include_dash_manifest': False,
+            'youtube_include_hls_manifest': False,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'referer': 'https://www.youtube.com/',
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -105,6 +119,8 @@ async def download_youtube_video(url, format_id=None, is_audio=False, is_live=Fa
                 'postprocessors': [{'key': 'FFmpegVideoConvertor', 'preferredcodec': 'mp3', 'preferredformat': 'mp3'}],
                 'socket_timeout': 30,
                 'noprogress': False,
+                'youtube_include_dash_manifest': False,
+                'youtube_include_hls_manifest': False,
             }
         elif is_live:
             ydl_opts = {
@@ -116,6 +132,8 @@ async def download_youtube_video(url, format_id=None, is_audio=False, is_live=Fa
                 'socket_timeout': 60,
                 'noprogress': False,
                 'live_flush_buffer': True,
+                'youtube_include_dash_manifest': False,
+                'youtube_include_hls_manifest': False,
             }
         else:
             format_str = f'{format_id}+bestaudio/best' if format_id else "bestvideo+bestaudio/best"
@@ -129,6 +147,8 @@ async def download_youtube_video(url, format_id=None, is_audio=False, is_live=Fa
                 'noprogress': False,
                 'continuedownload': True,
                 'retries': 10,
+                'youtube_include_dash_manifest': False,
+                'youtube_include_hls_manifest': False,
             }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -230,9 +250,14 @@ async def handle_link(client, message):
         processing_msg = await message.reply_text("🔍 Fetching info...")
         
         if is_playlist_url:
-            info = await asyncio.to_thread(get_playlist_info, text)
+            info = await get_playlist_info(text)
         else:
-            info = await asyncio.to_thread(get_youtube_info, text)
+            info = await get_youtube_info(text)
+        
+        if info is None:
+            yt_waiting_for_link[user_id] = True  # Re-add to waiting
+            await processing_msg.edit_text("❌ Error! Couldn't fetch. Please try again with a valid YouTube link.")
+            return
         
         if not info:
             yt_waiting_for_link[user_id] = True  # Re-add to waiting

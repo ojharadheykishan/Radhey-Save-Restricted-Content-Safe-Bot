@@ -67,10 +67,33 @@ async def safe_repo_boot():
         logger.info("»» ɢᴏᴏᴅ ʙʏᴇ ! sᴛᴏᴘᴘɪɴɢ ʙᴏᴛ.")
         await app.stop()
     except Exception as e:
-        logger.error(f"Error in bot boot: {e}")
-        # Attempt to restart the bot after 5 seconds
-        logger.info("Attempting to restart bot in 5 seconds...")
-        await asyncio.sleep(5)
+        error_msg = str(e)
+        logger.error(f"Error in bot boot: {error_msg}")
+        
+        # Check if it's a FLOOD_WAIT error and extract wait time
+        if "FLOOD_WAIT" in error_msg and "wait of" in error_msg:
+            try:
+                # Extract the number of seconds from the error message
+                # Format: "[420 FLOOD_WAIT_X] - A wait of 1471 seconds is required"
+                import re
+                match = re.search(r"wait of (\d+) seconds", error_msg)
+                if match:
+                    wait_time = int(match.group(1))
+                    logger.info(f"Telegram flood wait detected. Waiting {wait_time} seconds before restart...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    # Default wait time if we can't parse it
+                    logger.info("Telegram flood wait detected. Waiting 60 seconds before restart...")
+                    await asyncio.sleep(60)
+            except Exception as parse_error:
+                logger.error(f"Error parsing flood wait time: {parse_error}")
+                logger.info("Waiting 60 seconds before restart...")
+                await asyncio.sleep(60)
+        else:
+            # For non-flood errors, wait a shorter time
+            logger.info("Attempting to restart bot in 5 seconds...")
+            await asyncio.sleep(5)
+        
         # Instead of recursive call, just stop and let the outer loop restart
         try:
             from safe_repo import app
