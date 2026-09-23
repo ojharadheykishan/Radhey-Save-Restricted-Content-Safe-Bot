@@ -9,4 +9,6 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 ENV PYTHONUNBUFFERED=1
 
+EXPOSE 8080
+
 CMD ["bash", "start.sh"]

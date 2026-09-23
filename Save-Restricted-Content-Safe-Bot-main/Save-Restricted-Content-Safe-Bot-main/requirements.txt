@@ -6,6 +6,7 @@ requests
 motor
 pytz
 flask
+gunicorn
 telethon
 aiojobs
 werkzeug==2.2.2
