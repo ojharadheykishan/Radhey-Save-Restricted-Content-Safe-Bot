@@ -426,6 +426,9 @@ def build_stream_response(path, as_attachment=False):
 
     response.headers['Content-Type'] = mime_type
     response.headers['Content-Disposition'] = 'inline' if not as_attachment else 'attachment; filename="%s"' % os.path.basename(path)
+    response.headers['Accept-Ranges'] = 'bytes'
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Cache-Control'] = 'public, max-age=3600'
     return response
 
 
@@ -451,6 +454,7 @@ def player_page(token):
         'views': entry_meta.get('views', 0) if entry_meta else 0,
         'date': entry_meta.get('date', '') if entry_meta else '',
         'player_url': f"{request.url_root.rstrip('/')}/player/{token}",
+        'quality_sources': (entry_meta.get('quality_sources') or {}) if entry_meta else {},
     }
     return render_template('player.html', video=video)
 

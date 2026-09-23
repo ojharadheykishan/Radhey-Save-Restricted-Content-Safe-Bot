@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime as dt, timedelta
 from pathlib import Path
 from typing import Optional, Dict, List
+from urllib.parse import urlparse, urlunparse
 
 _STREAM_CACHE_DIR = None
 _CLEANUP_MAX_AGE_HOURS = 7
@@ -56,9 +57,12 @@ def _get_base_url(base_url=None):
         if not env_url.startswith(("http://", "https://")):
             env_url = "https://" + env_url
 
-        # Append explicit port if provided via env (e.g., PORT or RAILWAY_PORT)
+        # Railway's public domain already routes to the assigned internal port.
+        # Never expose PORT in public links when a hosted URL is configured.
         port = os.environ.get("PORT") or os.environ.get("RAILWAY_PORT") or os.environ.get("SERVER_PORT")
-        if port:
+        parsed = urlparse(env_url)
+        is_local_url = parsed.hostname in {"127.0.0.1", "localhost"}
+        if port and is_local_url:
             try:
                 port_int = int(str(port))
             except Exception:
@@ -66,9 +70,6 @@ def _get_base_url(base_url=None):
             if port_int:
                 # Only append if URL has no explicit port
                 # e.g. https://example.com -> https://example.com:5000
-                from urllib.parse import urlparse, urlunparse
-
-                parsed = urlparse(env_url)
                 netloc = parsed.netloc
                 if ":" not in netloc:
                     netloc = f"{netloc}:{port_int}"

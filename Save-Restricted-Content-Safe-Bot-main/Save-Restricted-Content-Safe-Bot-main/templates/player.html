@@ -97,11 +97,10 @@
                     Quality
                 </button>
                 <div id="quality-menu" class="hidden absolute bottom-full mb-2 left-0 bg-slate-800/90 backdrop-blur-md rounded-xl overflow-hidden shadow-xl border border-white/10 min-w-[120px]">
-                    <button class="quality-option active w-full px-4 py-2 text-white text-sm text-left">Auto</button>
-                    <button class="quality-option w-full px-4 py-2 text-white text-sm text-left">1080p</button>
-                    <button class="quality-option w-full px-4 py-2 text-white text-sm text-left">720p</button>
-                    <button class="quality-option w-full px-4 py-2 text-white text-sm text-left">480p</button>
-                    <button class="quality-option w-full px-4 py-2 text-white text-sm text-left">360p</button>
+                    <button data-quality="auto" data-source="{{ video.stream_url }}" class="quality-option active w-full px-4 py-2 text-white text-sm text-left">Original</button>
+                    {% for quality, source in video.quality_sources.items() %}
+                    <button data-quality="{{ quality }}" data-source="{{ source }}" class="quality-option w-full px-4 py-2 text-white text-sm text-left">{{ quality }}</button>
+                    {% endfor %}
                 </div>
             </div>
 
@@ -148,6 +147,24 @@
         });
         document.getElementById('speed-menu').classList.add('hidden');
     }
+
+    function setQuality(button) {
+        const source = button.dataset.source;
+        if (!source || !player) return;
+        const currentTime = player.currentTime;
+        const wasPlaying = !player.paused;
+        player.src = source;
+        player.load();
+        player.currentTime = currentTime;
+        if (wasPlaying) player.play().catch(() => {});
+        document.querySelectorAll('.quality-option').forEach(option => option.classList.remove('active'));
+        button.classList.add('active');
+        document.getElementById('quality-menu').classList.add('hidden');
+    }
+
+    document.querySelectorAll('.quality-option').forEach(button => {
+        button.addEventListener('click', () => setQuality(button));
+    });
 
     function togglePip() {
         if (document.pictureInPictureElement) {
