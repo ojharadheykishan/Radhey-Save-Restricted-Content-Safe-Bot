@@ -319,47 +319,6 @@ def batch_page():
     return render_template('batch.html', videos=videos)
 
 
-@app.route('/auth/login', methods=['GET', 'POST'])
-def auth_login():
-    if request.method == 'POST':
-        username = (request.form.get('username') or '').strip()
-        password = (request.form.get('password') or '').strip()
-        if username and password:
-            return redirect('/study')
-        error = 'Invalid credentials'
-    else:
-        error = None
-    return render_template('auth/login.html', error=error)
-
-
-@app.route('/auth/register', methods=['GET', 'POST'])
-def auth_register():
-    return render_template('auth/register.html')
-
-
-@app.route('/auth/forgot-password', methods=['GET', 'POST'])
-def auth_forgot_password():
-    if request.method == 'POST':
-        success = 'Password reset link sent to your email'
-    else:
-        success = None
-    return render_template('auth/forgot-password.html', success=success)
-
-
-@app.route('/auth/profile')
-def auth_profile():
-    user = {
-        'name': 'Demo User',
-        'username': 'demouser',
-        'email': 'demo@studyhub.com',
-        'watched': 42,
-        'favorites': 18,
-        'watchlist': 7,
-        'shared': 3,
-    }
-    return render_template('auth/profile.html', user=user)
-
-
 def start_bot_process():
     """Start the safe_repo bot.
 
