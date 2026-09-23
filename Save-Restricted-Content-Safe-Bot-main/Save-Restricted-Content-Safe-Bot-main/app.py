@@ -7,6 +7,7 @@ import json
 from flask import Flask, send_file, abort, redirect, request, render_template, jsonify
 from safe_repo.core.media_links import get_stream_file, read_stream_entries, get_stream_entry
 from safe_repo.web.admin import admin_dashboard_view, admin_login_view, admin_logout_view, toggle_featured_view, toggle_trending_view, delete_entry_view
+from safe_repo.web import auth as auth_module, users as users_module
 from safe_repo.web.study import build_public_study_url, build_video_index, load_catalog_entries
 
 app = Flask(__name__)
