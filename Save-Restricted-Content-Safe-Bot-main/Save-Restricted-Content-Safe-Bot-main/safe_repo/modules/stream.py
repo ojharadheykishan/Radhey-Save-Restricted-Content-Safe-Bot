@@ -5,6 +5,7 @@
 
 import logging
 import os
+import time
 import uuid
 from datetime import datetime
 from pyrogram import filters
@@ -27,6 +28,35 @@ def format_progress_bar(percent, title="Processing", note="Please wait"):
         f"[{bar}] {percent}%\n"
         f"{note}"
     )
+
+
+async def update_download_progress(current, total, progress_sender, progress_message_id, state):
+    """Update the Telegram status message during a Pyrogram media download."""
+    if not total or not progress_sender or not progress_message_id:
+        return
+
+    percent = max(0, min(100, int(current * 100 / total)))
+    now = time.monotonic()
+    last_percent = state.get("percent", -1)
+    last_update = state.get("updated_at", 0)
+    if percent < 100 and percent == last_percent:
+        return
+    if percent < 100 and percent - last_percent < 2 and now - last_update < 1.5:
+        return
+
+    state["percent"] = percent
+    state["updated_at"] = now
+    downloaded_mb = current / (1024 * 1024)
+    total_mb = total / (1024 * 1024)
+    text = format_progress_bar(
+        percent,
+        "Video mil gaya - downloading",
+        f"{downloaded_mb:.1f} MB / {total_mb:.1f} MB",
+    )
+    try:
+        await app.edit_message_text(progress_sender, progress_message_id, text)
+    except Exception as error:
+        logger.debug(f"Progress update skipped: {error}")
 
 
 def format_failure_message(reason="Stream setup failed"):
@@ -132,15 +162,28 @@ async def download_media_payload(client, message, progress_sender=None, progress
     """Download media with a fallback for forwarded files."""
     file_name = build_local_file_name(message)
     media_file = None
+    progress_state = {"percent": -1, "updated_at": 0}
 
     try:
-        media_file = await client.download_media(message, file_name=file_name)
+        media_file = await client.download_media(
+            message,
+            file_name=file_name,
+            progress=update_download_progress,
+            progress_args=(progress_sender, progress_message_id, progress_state),
+        )
     except Exception:
-        media_file = None
+        try:
+            media_file = await client.download_media(message, file_name=file_name)
+        except Exception:
+            media_file = None
 
     if not media_file:
         try:
-            media_file = await message.download(file_name=file_name)
+            media_file = await message.download(
+                file_name=file_name,
+                progress=update_download_progress,
+                progress_args=(progress_sender, progress_message_id, progress_state),
+            )
         except Exception:
             media_file = None
 
@@ -149,7 +192,7 @@ async def download_media_payload(client, message, progress_sender=None, progress
             await app.edit_message_text(
                 progress_sender,
                 progress_message_id,
-                format_progress_bar(100, "Link ready", "Almost done"),
+                format_progress_bar(100, "Download complete", "Preparing public video link"),
             )
         except Exception:
             pass
@@ -383,7 +426,7 @@ async def handle_direct_media(client, message):
             await app.edit_message_text(
                 chat_id,
                 status_message.id,
-                format_progress_bar(60, "Preparing stream link", "Generating public link"),
+                format_progress_bar(70, "Download complete", "Generating public video link"),
             )
         except Exception:
             pass
@@ -399,6 +442,15 @@ async def handle_direct_media(client, message):
             return
 
         logger.info(f"handle_direct_media: successfully generated stream link: {public_link['stream_url']}")
+
+        try:
+            await app.edit_message_text(
+                chat_id,
+                status_message.id,
+                format_progress_bar(90, "Link generated", "Saving video details"),
+            )
+        except Exception:
+            pass
         
         metadata = extract_stream_metadata(message, fallback_title=os.path.basename(media_file))
         study_url = build_public_study_link(metadata)
@@ -415,7 +467,7 @@ async def handle_direct_media(client, message):
 
         text = build_stream_reply_text(public_link, study_url=study_url)
         logger.info(f"handle_direct_media: sending final reply message")
-        await app.edit_message_text(chat_id, status_message.id, text)
+        await app.edit_message_text(chat_id, status_message.id, f"{format_progress_bar(100, 'Video ready', 'Player and direct links generated')}\n\n{text}")
 
         try:
             os.remove(media_file)
