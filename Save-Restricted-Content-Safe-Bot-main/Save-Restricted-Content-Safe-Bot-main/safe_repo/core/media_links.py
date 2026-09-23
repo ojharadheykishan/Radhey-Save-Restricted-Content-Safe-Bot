@@ -1,0 +1,409 @@
+import json
+import os
+import re
+import shutil
+import uuid
+from datetime import datetime as dt, timedelta
+from pathlib import Path
+from typing import Optional, Dict, List
+
+_STREAM_CACHE_DIR = None
+_CLEANUP_MAX_AGE_HOURS = 7
+
+
+def _get_shared_repo_dir():
+    return Path(__file__).resolve().parent / "mongo"
+
+
+def _get_cache_dir(cache_dir=None):
+    global _STREAM_CACHE_DIR
+
+    if cache_dir:
+        _STREAM_CACHE_DIR = str(Path(cache_dir).expanduser())
+        return _STREAM_CACHE_DIR
+
+    if _STREAM_CACHE_DIR:
+        return _STREAM_CACHE_DIR
+
+    env_dir = os.environ.get("STREAM_CACHE_DIR")
+    if env_dir:
+        _STREAM_CACHE_DIR = str(Path(env_dir).expanduser())
+        return _STREAM_CACHE_DIR
+
+    base_dir = Path(__file__).resolve().parent / "stream_cache"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    _STREAM_CACHE_DIR = str(base_dir)
+    return _STREAM_CACHE_DIR
+
+
+def _get_base_url(base_url=None):
+    if base_url:
+        return base_url.rstrip("/")
+
+    # Try to get base URL from environment variables
+    # Priority order: explicit URLs first, then Render's auto-provided URL, then fallbacks
+    env_url = (
+        os.environ.get("PUBLIC_BASE_URL", "").strip()
+        or os.environ.get("APP_URL", "").strip()
+        or os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+        or os.environ.get("RAILWAY_STATIC_URL", "").strip()
+        or os.environ.get("BASE_URL", "").strip()
+        or os.environ.get("RENDER_EXTERNAL_URL", "").strip()
+    )
+
+    if env_url:
+        # If user provided a host without scheme, assume https
+        if not env_url.startswith(("http://", "https://")):
+            env_url = "https://" + env_url
+
+        # Append explicit port if provided via env (e.g., PORT or RAILWAY_PORT)
+        port = os.environ.get("PORT") or os.environ.get("RAILWAY_PORT") or os.environ.get("SERVER_PORT")
+        if port:
+            try:
+                port_int = int(str(port))
+            except Exception:
+                port_int = None
+            if port_int:
+                # Only append if URL has no explicit port
+                # e.g. https://example.com -> https://example.com:5000
+                from urllib.parse import urlparse, urlunparse
+
+                parsed = urlparse(env_url)
+                netloc = parsed.netloc
+                if ":" not in netloc:
+                    netloc = f"{netloc}:{port_int}"
+                    parsed = parsed._replace(netloc=netloc)
+                    env_url = urlunparse(parsed)
+
+        return env_url.rstrip("/")
+
+    # Fallback to localhost only if explicitly in development mode
+    return "http://127.0.0.1:5000"
+
+
+def _get_max_stream_file_size_bytes(max_size_mb=None):
+    if max_size_mb is not None:
+        try:
+            return int(max_size_mb) * 1024 * 1024
+        except (TypeError, ValueError):
+            return 5000 * 1024 * 1024
+
+    env_value = os.environ.get("MAX_STREAM_FILE_SIZE_MB", "5000")
+    try:
+        return int(env_value) * 1024 * 1024
+    except (TypeError, ValueError):
+        return 5000 * 1024 * 1024
+
+
+def save_stream_file(source_path, base_url=None, cache_dir=None, max_size_mb=None) -> Optional[Dict[str, str]]:
+    """Copy a local media file into a public cache directory and return stream URLs."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    if not source_path or not os.path.exists(source_path):
+        logger.warning(f"save_stream_file: source_path does not exist: {source_path}")
+        return None
+
+    max_bytes = _get_max_stream_file_size_bytes(max_size_mb)
+    file_size = os.path.getsize(source_path)
+    
+    if file_size > max_bytes:
+        logger.warning(f"save_stream_file: file too large ({file_size} bytes, max {max_bytes} bytes): {source_path}")
+        return None
+
+    try:
+        cache_path = Path(_get_cache_dir(cache_dir))
+        cache_path.mkdir(parents=True, exist_ok=True)
+
+        token = uuid.uuid4().hex
+        safe_name = os.path.basename(source_path).replace(" ", "_")
+        target_path = cache_path / f"{token}_{safe_name}"
+        shutil.copy2(source_path, target_path)
+
+        base_url = _get_base_url(base_url)
+        result = {
+            "token": token,
+            "file_path": str(target_path),
+            "stream_url": f"{base_url}/stream/{token}",
+            "player_url": f"{base_url}/player/{token}",
+        }
+        logger.info(f"save_stream_file: successfully saved {source_path} to {target_path} with URLs: {result['stream_url']}")
+        return result
+    except Exception as e:
+        logger.error(f"save_stream_file: error copying file {source_path} to cache: {e}", exc_info=True)
+        return None
+
+
+def get_archive_path(archive_path=None):
+    """Return the path used for storing generated stream links."""
+    if archive_path:
+        return str(Path(archive_path).expanduser())
+
+    env_path = os.environ.get("STREAM_LINKS_FILE")
+    if env_path:
+        return str(Path(env_path).expanduser())
+
+    repo_dir = _get_shared_repo_dir()
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    return str(repo_dir / "stream_links.txt")
+
+
+def get_catalog_path(catalog_path=None):
+    """Return the path used for storing structured stream-link catalog entries."""
+    if catalog_path:
+        return str(Path(catalog_path).expanduser())
+
+    env_path = os.environ.get("STREAM_CATALOG_FILE")
+    if env_path:
+        return str(Path(env_path).expanduser())
+
+    repo_dir = _get_shared_repo_dir()
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    return str(repo_dir / "stream_catalog.json")
+
+
+def append_stream_link(player_url, stream_url, label="stream", archive_path=None, catalog_path=None, subject=None, description=None, title=None, token=None):
+    """Append a generated stream link to a text archive file and save structured metadata."""
+    archive_file = Path(get_archive_path(archive_path))
+    archive_file.parent.mkdir(parents=True, exist_ok=True)
+    stamp = dt.now().strftime("%Y-%m-%d %H:%M:%S")
+    with archive_file.open("a", encoding="utf-8") as handle:
+        handle.write(f"[{stamp}] {label}\n")
+        handle.write(f"Player: {player_url}\n")
+        handle.write(f"Stream: {stream_url}\n\n")
+
+    catalog_file = Path(get_catalog_path(catalog_path))
+    catalog_file.parent.mkdir(parents=True, exist_ok=True)
+    entries = read_stream_entries(catalog_path=str(catalog_file))
+
+    entry = {
+        "timestamp": stamp,
+        "date": dt.now().strftime("%Y-%m-%d"),
+        "label": label,
+        "subject": subject or "General",
+        "description": description or "",
+        "title": title or (subject or "Untitled"),
+        "token": token or os.path.basename(player_url).split("/")[-1],
+        "player_url": player_url,
+        "stream_url": stream_url,
+    }
+    entries.append(entry)
+    with catalog_file.open("w", encoding="utf-8") as handle:
+        json.dump(entries, handle, indent=2, ensure_ascii=False)
+
+    return str(archive_file)
+
+
+def read_stream_entries(catalog_path=None):
+    """Read structured stream-link entries from the catalog file."""
+    catalog_file = Path(get_catalog_path(catalog_path))
+    if not catalog_file.exists():
+        return []
+    try:
+        data = json.loads(catalog_file.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return []
+
+
+def read_stream_links(archive_path=None):
+    """Read the text archive of generated stream links."""
+    archive_file = Path(get_archive_path(archive_path))
+    if not archive_file.exists():
+        return ""
+    return archive_file.read_text(encoding="utf-8")
+
+
+def get_stream_file(token):
+    """Fetch a previously stored stream file by token."""
+    if not token:
+        return None
+
+    cache_dir = Path(_get_cache_dir())
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    for path in cache_dir.glob(f"{token}_*"):
+        if path.is_file():
+            return {"token": token, "file_path": str(path)}
+
+    return None
+
+
+def get_stream_entry(token, catalog_path=None):
+    """Fetch the catalog metadata entry for a stream token if present."""
+    if not token:
+        return None
+
+    for entry in read_stream_entries(catalog_path=catalog_path):
+        if str(entry.get("token", "")) == str(token):
+            return entry
+    return None
+
+
+def cleanup_old_stream_files(max_age_hours=None, cache_dir=None):
+    """Remove cached stream files older than max_age_hours."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if max_age_hours is None:
+        max_age_hours = _CLEANUP_MAX_AGE_HOURS
+
+    cache_path = Path(_get_cache_dir(cache_dir))
+    if not cache_path.exists():
+        return 0
+
+    cutoff = dt.now().timestamp() - (max_age_hours * 3600)
+    removed = 0
+
+    for path in cache_path.iterdir():
+        if not path.is_file():
+            continue
+        try:
+            mtime = path.stat().st_mtime
+            if mtime < cutoff:
+                path.unlink(missing_ok=True)
+                removed += 1
+        except Exception as e:
+            logger.debug(f"Failed to cleanup cache file {path}: {e}")
+
+    if removed:
+        logger.info(f"Cleaned up {removed} old stream cache files (older than {max_age_hours}h)")
+    return removed
+
+
+def cleanup_old_catalog_entries(max_age_hours=None, catalog_path=None):
+    """Remove catalog entries older than max_age_hours."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if max_age_hours is None:
+        max_age_hours = _CLEANUP_MAX_AGE_HOURS
+
+    catalog_file = Path(get_catalog_path(catalog_path))
+    if not catalog_file.exists():
+        return 0
+
+    cutoff = dt.now() - timedelta(hours=max_age_hours)
+    cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        entries = read_stream_entries(catalog_path=str(catalog_file))
+        original_count = len(entries)
+        filtered = []
+        for entry in entries:
+            ts = entry.get("timestamp", "")
+            try:
+                entry_time = dt.strptime(ts, "%Y-%m-%d %H:%M:%S")
+                if entry_time >= cutoff:
+                    filtered.append(entry)
+            except Exception:
+                filtered.append(entry)
+
+        if len(filtered) < original_count:
+            catalog_file.write_text(
+                json.dumps(filtered, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            logger.info(f"Pruned {original_count - len(filtered)} old catalog entries (older than {max_age_hours}h)")
+            return original_count - len(filtered)
+    except Exception as e:
+        logger.error(f"Failed to cleanup catalog: {e}")
+    return 0
+
+
+def cleanup_old_archive_entries(max_age_hours=None, archive_path=None):
+    """Remove old entries from the stream links text archive."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if max_age_hours is None:
+        max_age_hours = _CLEANUP_MAX_AGE_HOURS
+
+    archive_file = Path(get_archive_path(archive_path))
+    if not archive_file.exists():
+        return 0
+
+    cutoff = dt.now() - timedelta(hours=max_age_hours)
+    cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        content = archive_file.read_text(encoding="utf-8")
+        lines = content.splitlines()
+        kept = []
+        current_block = []
+        current_ts = None
+        entry_pattern = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]")
+
+        for line in lines:
+            match = entry_pattern.match(line)
+            if match:
+                ts_str = match.group(1)
+                if current_block and current_ts and current_ts >= cutoff_str:
+                    kept.extend(current_block)
+                    kept.append("")
+                current_block = [line]
+                current_ts = ts_str
+            else:
+                current_block.append(line)
+
+        if current_block and current_ts and current_ts >= cutoff_str:
+            kept.extend(current_block)
+            kept.append("")
+
+        new_content = "\n".join(kept).strip() + "\n" if kept else ""
+        if len(new_content) < len(content):
+            archive_file.write_text(new_content, encoding="utf-8")
+            removed_lines = len(lines) - len(new_content.splitlines())
+            logger.info(f"Pruned old archive entries (older than {max_age_hours}h)")
+            return removed_lines
+    except Exception as e:
+        logger.error(f"Failed to cleanup archive: {e}")
+    return 0
+
+
+def cleanup_orphaned_temp_files(max_age_hours=2, work_dir=None):
+    """Remove orphaned temp media files from the working directory."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if work_dir is None:
+        work_dir = Path.cwd()
+    else:
+        work_dir = Path(work_dir)
+
+    cutoff = dt.now().timestamp() - (max_age_hours * 3600)
+    removed = 0
+    patterns = ("stream_",)
+
+    try:
+        for path in work_dir.iterdir():
+            if not path.is_file():
+                continue
+            try:
+                if any(str(path.name).startswith(p) for p in patterns):
+                    mtime = path.stat().st_mtime
+                    if mtime < cutoff:
+                        path.unlink(missing_ok=True)
+                        removed += 1
+            except Exception as e:
+                logger.debug(f"Failed to cleanup temp file {path}: {e}")
+    except Exception as e:
+        logger.error(f"Failed to scan work dir for temp files: {e}")
+
+    if removed:
+        logger.info(f"Cleaned up {removed} orphaned temp files (older than {max_age_hours}h)")
+    return removed
+
+
+def run_full_cleanup(max_age_hours=None):
+    """Run all cleanup tasks. Returns total removed items."""
+    if max_age_hours is None:
+        max_age_hours = _CLEANUP_MAX_AGE_HOURS
+    total = 0
+    total += cleanup_old_stream_files(max_age_hours=max_age_hours)
+    total += cleanup_old_catalog_entries(max_age_hours=max_age_hours)
+    total += cleanup_old_archive_entries(max_age_hours=max_age_hours)
+    total += cleanup_orphaned_temp_files(max_age_hours=max(1, max_age_hours // 3))
+    return total
