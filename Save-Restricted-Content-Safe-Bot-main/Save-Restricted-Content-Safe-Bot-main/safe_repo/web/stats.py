@@ -115,7 +115,7 @@ def compute_stats(catalog_path: Optional[str] = None) -> Dict[str, Any]:
     return stats
 
 
-def get_dashboard_data(catalog_path: Optional[str] = None]) -> Dict[str, Any]:
+def get_dashboard_data(catalog_path: Optional[str] = None) -> Dict[str, Any]:
     stats = compute_stats(catalog_path)
     videos = load_catalog_entries(catalog_path)
 
