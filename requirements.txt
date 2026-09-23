@@ -1,0 +1,2 @@
+# Railway entrypoint dependencies. The application source remains in the nested directory.
+-r Save-Restricted-Content-Safe-Bot-main/Save-Restricted-Content-Safe-Bot-main/requirements.txt
