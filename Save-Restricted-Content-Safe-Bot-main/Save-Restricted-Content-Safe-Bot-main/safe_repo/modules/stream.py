@@ -481,9 +481,15 @@ async def handle_direct_media(client, message):
             pass
 
 
-@app.on_message(filters.forwarded)
+@app.on_message(
+    filters.video
+    | filters.document
+    | filters.audio
+    | filters.animation
+    | filters.photo
+)
 async def handle_forwarded_media(client, message):
-    """Generate stream links for forwarded media messages as well."""
+    """Generate stream links for direct and forwarded media messages."""
     if not has_media_payload(message):
         return
     await handle_direct_media(client, message)
