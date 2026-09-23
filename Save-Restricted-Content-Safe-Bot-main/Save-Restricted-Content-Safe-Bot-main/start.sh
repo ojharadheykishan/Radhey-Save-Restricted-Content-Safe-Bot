@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/Save-Restricted-Content-Safe-Bot-main/Save-Restricted-Content-Safe-Bot-main"
-
 python -m safe_repo &
 bot_pid=$!
 
 cleanup() {
-	kill "$bot_pid" 2>/dev/null || true
+    kill "$bot_pid" 2>/dev/null || true
 }
 trap cleanup EXIT TERM INT
 
