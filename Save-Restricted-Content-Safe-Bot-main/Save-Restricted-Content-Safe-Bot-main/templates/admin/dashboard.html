@@ -218,7 +218,9 @@
                                     </div>
                                 </td>
                                 <td class="p-4 text-slate-300 text-sm">{{ entry.subject }}</td>
-                                <td class="p-4 text-slate-300 text-sm">{{ entry.folder }}</td>
+                                <td class="p-4 text-slate-300 text-sm">
+                                    {{ entry.folder or 'General' }}{% if entry.subfolder %}<span class="text-slate-500"> / {{ entry.subfolder }}</span>{% endif %}
+                                </td>
                                 <td class="p-4">
                                     <div class="flex flex-wrap gap-1">
                                         {% if entry.featured %}
@@ -233,6 +235,9 @@
                                     <div class="flex gap-2">
                                         <a href="{{ entry.player_url }}" target="_blank" class="w-8 h-8 rounded-lg bg-electric/10 text-electric flex items-center justify-center hover:bg-electric/20 transition-colors" title="Preview">
                                             <i class="fas fa-external-link-alt text-xs"></i>
+                                        </a>
+                                        <a href="/admin/edit/{{ entry.token }}" class="w-8 h-8 rounded-lg bg-cyan/10 text-cyan flex items-center justify-center hover:bg-cyan/20 transition-colors" title="Edit video and folders">
+                                            <i class="fas fa-pen text-xs"></i>
                                         </a>
                                         <a href="/admin/toggle-featured/{{ entry.token }}" class="w-8 h-8 rounded-lg bg-yellow-500/10 text-yellow-400 flex items-center justify-center hover:bg-yellow-500/20 transition-colors" title="Toggle Featured">
                                             <i class="fas fa-star text-xs"></i>

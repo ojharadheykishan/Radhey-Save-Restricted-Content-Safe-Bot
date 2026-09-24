@@ -38,7 +38,7 @@ def _build_watch_url(token: str) -> str:
     return f"/study/watch/{token}"
 
 
-def build_public_study_url(base_url: str, subject: Optional[str] = None, date: Optional[str] = None, q: Optional[str] = None, folder: Optional[str] = None) -> str:
+def build_public_study_url(base_url: str, subject: Optional[str] = None, date: Optional[str] = None, q: Optional[str] = None, folder: Optional[str] = None, subfolder: Optional[str] = None) -> str:
     """Build a public study URL that defaults to the home page and only uses /study when filters are present."""
     base = (base_url or "/").rstrip("/")
     params = {}
@@ -50,6 +50,8 @@ def build_public_study_url(base_url: str, subject: Optional[str] = None, date: O
         params["q"] = q
     if folder:
         params["folder"] = folder
+    if subfolder:
+        params["subfolder"] = subfolder
 
     if not params:
         return f"{base}/"
@@ -72,6 +74,15 @@ def _extract_folder_name(description: str) -> str:
     return "General"
 
 
+def _extract_subfolder_name(description: str) -> str:
+    text = (description or "").strip()
+    for line in text.splitlines():
+        line = line.strip()
+        if line.lower().startswith("subfolder:"):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
 def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, Any]]:
     """Normalize stored stream links into study-site video entries."""
     entries: List[Dict[str, Any]] = []
@@ -81,7 +92,8 @@ def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, A
         category = str(raw_entry.get("category") or raw_entry.get("class") or "General").strip() or "General"
         title = str(raw_entry.get("title") or subject or "Untitled").strip() or "Untitled"
         description = str(raw_entry.get("description") or "").strip()
-        folder_name = _extract_folder_name(description)
+        folder_name = str(raw_entry.get("folder") or _extract_folder_name(description)).strip() or "General"
+        subfolder_name = str(raw_entry.get("subfolder") or _extract_subfolder_name(description)).strip()
         stream_url = str(raw_entry.get("stream_url") or "").strip()
         player_url = str(raw_entry.get("player_url") or "").strip()
 
@@ -91,6 +103,7 @@ def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, A
                 "title": title,
                 "description": description,
                 "folder": folder_name,
+                "subfolder": subfolder_name,
                 "subject": subject,
                 "category": category,
                 "timestamp": str(raw_entry.get("timestamp") or ""),
@@ -107,7 +120,7 @@ def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, A
     return entries
 
 
-def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str] = None, date: Optional[str] = None, q: Optional[str] = None, folder: Optional[str] = None) -> Dict[str, Any]:
+def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str] = None, date: Optional[str] = None, q: Optional[str] = None, folder: Optional[str] = None, subfolder: Optional[str] = None) -> Dict[str, Any]:
     """Build a study-site index from catalog entries and optional filters."""
     videos = load_catalog_entries(catalog_path)
 
@@ -115,10 +128,12 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
     date_param = (date or "").strip()
     query_param = (q or "").strip()
     folder_param = (folder or "").strip()
+    subfolder_param = (subfolder or "").strip()
     subject_filter = subject_param.lower()
     date_filter = date_param
     search_query = query_param.lower()
     folder_filter = folder_param.lower()
+    subfolder_filter = subfolder_param.lower()
 
     filtered = []
     for video in videos:
@@ -126,6 +141,7 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
         subject_name = str(video.get("subject", "") or "").lower()
         description = str(video.get("description", "") or "").lower()
         folder_name = str(video.get("folder") or "General").lower()
+        subfolder_name = str(video.get("subfolder") or "").lower()
         if search_query and search_query not in title and search_query not in subject_name and search_query not in description:
             continue
         if subject_filter and subject_filter != str(video.get("subject", "")).lower():
@@ -133,6 +149,8 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
         if date_filter and str(video.get("date", "")) != date_filter:
             continue
         if folder_filter and folder_filter != folder_name:
+            continue
+        if subfolder_filter and subfolder_filter != subfolder_name:
             continue
         filtered.append(video)
 
@@ -167,25 +185,34 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
 
     categories: Dict[str, int] = {}
     folders: Dict[str, int] = {}
+    folder_tree_map: Dict[str, Dict[str, Any]] = {}
     for video in videos:
         category = video.get("category") or "General"
         categories[category] = categories.get(category, 0) + 1
         folder = video.get("folder") or "General"
         folders[folder] = folders.get(folder, 0) + 1
+        folder_tree_map.setdefault(folder, {"name": folder, "count": 0, "subfolders": {}})
+        folder_tree_map[folder]["count"] += 1
+        subfolder = video.get("subfolder") or ""
+        if subfolder:
+            subfolders = folder_tree_map[folder]["subfolders"]
+            subfolders[subfolder] = subfolders.get(subfolder, 0) + 1
 
     playlists = []
     playlist_map = {}
     for video in videos:
         subject_name = video.get("subject") or "General"
         folder_name = video.get("folder") or "General"
-        key = f"{subject_name}:::{folder_name}"
+        subfolder_name = video.get("subfolder") or ""
+        key = f"{subject_name}:::{folder_name}:::{subfolder_name}"
         playlist_map.setdefault(key, []).append(video)
     for key, subject_videos in sorted(playlist_map.items(), key=lambda item: item[0].lower()):
-        subject_name, folder_name = key.split(":::", 1)
+        subject_name, folder_name, subfolder_name = key.split(":::" , 2)
         subject_videos_sorted = sorted(subject_videos, key=lambda item: (item.get("timestamp", "")), reverse=True)
         playlists.append({
             "subject": subject_name,
             "folder": folder_name,
+            "subfolder": subfolder_name,
             "videos": subject_videos_sorted[:6],
         })
 
@@ -203,11 +230,23 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
             {"name": name, "count": count}
             for name, count in sorted(folders.items(), key=lambda item: (-item[1], item[0]))
         ],
+        "folder_tree": [
+            {
+                "name": name,
+                "count": data["count"],
+                "subfolders": [
+                    {"name": subfolder, "count": count}
+                    for subfolder, count in sorted(data["subfolders"].items(), key=lambda item: (-item[1], item[0]))
+                ],
+            }
+            for name, data in sorted(folder_tree_map.items(), key=lambda item: (-item[1]["count"], item[0]))
+        ],
         "playlists": playlists[:8],
         "filter_summary": {
             "subject": subject_param if subject_param else "",
             "date": date_param if date_param else "",
             "q": query_param if query_param else "",
             "folder": folder_param if folder_param else "",
+            "subfolder": subfolder_param if subfolder_param else "",
         },
     }

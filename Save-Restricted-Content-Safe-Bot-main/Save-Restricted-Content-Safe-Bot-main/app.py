@@ -6,7 +6,7 @@ import requests
 import json
 from flask import Flask, send_file, abort, redirect, request, render_template, jsonify
 from safe_repo.core.media_links import get_stream_file, read_stream_entries, get_stream_entry
-from safe_repo.web.admin import admin_dashboard_view, admin_login_view, admin_logout_view, toggle_featured_view, toggle_trending_view, delete_entry_view
+from safe_repo.web.admin import admin_dashboard_view, admin_login_view, admin_logout_view, toggle_featured_view, toggle_trending_view, delete_entry_view, edit_entry_view
 from safe_repo.web.api import register_api_routes
 from safe_repo.web import auth as auth_module, users as users_module
 from safe_repo.web.study import build_public_study_url, build_video_index, load_catalog_entries
@@ -37,16 +37,19 @@ def home():
     date_filter = (request.args.get('date') or '').strip()
     search_query = (request.args.get('q') or '').strip()
     folder_filter = (request.args.get('folder') or '').strip()
-    index = build_video_index(subject=subject_filter, date=date_filter, q=search_query, folder=folder_filter)
+    subfolder_filter = (request.args.get('subfolder') or '').strip()
+    index = build_video_index(subject=subject_filter, date=date_filter, q=search_query, folder=folder_filter, subfolder=subfolder_filter)
     videos = index.get("videos", [])
     featured = index.get("featured", [])
     latest = index.get("latest", [])
     trending = index.get("trending", [])
     subjects = index.get("subjects", [])
     playlists = index.get("playlists", [])
+    folders = index.get("folders", [])
+    folder_tree = index.get("folder_tree", [])
     filter_summary = index.get("filter_summary", {})
 
-    return render_template('home.html', videos=videos, featured=featured, latest=latest, trending=trending, subjects=subjects, playlists=playlists, filter_summary=filter_summary, request=request)
+    return render_template('home.html', videos=videos, featured=featured, latest=latest, trending=trending, subjects=subjects, playlists=playlists, folders=folders, folder_tree=folder_tree, filter_summary=filter_summary, request=request)
 
 
 @app.route('/study')
@@ -56,7 +59,8 @@ def study_home():
     date_filter = (request.args.get('date') or '').strip()
     search_query = (request.args.get('q') or '').strip()
     folder_filter = (request.args.get('folder') or '').strip()
-    index = build_video_index(subject=subject_filter, date=date_filter, q=search_query, folder=folder_filter)
+    subfolder_filter = (request.args.get('subfolder') or '').strip()
+    index = build_video_index(subject=subject_filter, date=date_filter, q=search_query, folder=folder_filter, subfolder=subfolder_filter)
     videos = index.get("videos", [])
     featured = index.get("featured", [])
     latest = index.get("latest", [])
@@ -77,7 +81,8 @@ def public_study_redirect():
     date = (request.args.get('date') or '').strip()
     q = (request.args.get('q') or '').strip()
     folder = (request.args.get('folder') or '').strip()
-    target = build_public_study_url(request.url_root, subject=subject, date=date, q=q, folder=folder)
+    subfolder = (request.args.get('subfolder') or '').strip()
+    target = build_public_study_url(request.url_root, subject=subject, date=date, q=q, folder=folder, subfolder=subfolder)
     return redirect(target, code=302)
 
 
@@ -109,6 +114,11 @@ def admin_toggle_trending(token):
 @app.route('/admin/delete/<token>')
 def admin_delete_entry(token):
     return delete_entry_view(token)
+
+
+@app.route('/admin/edit/<token>', methods=['GET', 'POST'])
+def admin_edit_entry(token):
+    return edit_entry_view(token)
 
 
 @app.route('/auth/register', methods=['GET', 'POST'])

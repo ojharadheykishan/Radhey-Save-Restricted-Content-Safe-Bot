@@ -66,6 +66,26 @@ def admin_dashboard_view():
     return render_template('admin/dashboard.html', entries=entries, folders=folders)
 
 
+def edit_entry_view(token):
+    require_admin()
+    entries = _load_entries()
+    entry = next((item for item in entries if str(item.get("token")) == str(token)), None)
+    if not entry:
+        abort(404)
+
+    if request.method == "POST":
+        entry["title"] = (request.form.get("title") or "Untitled").strip() or "Untitled"
+        entry["subject"] = (request.form.get("subject") or "General").strip() or "General"
+        entry["category"] = (request.form.get("category") or "General").strip() or "General"
+        entry["folder"] = (request.form.get("folder") or "General").strip() or "General"
+        entry["subfolder"] = (request.form.get("subfolder") or "").strip()
+        entry["description"] = (request.form.get("description") or "").strip()
+        _save_entries(entries)
+        return redirect("/admin/dashboard")
+
+    return render_template('admin/edit.html', entry=entry)
+
+
 def admin_logout_view():
     session.pop("is_admin", None)
     return redirect("/admin/login")

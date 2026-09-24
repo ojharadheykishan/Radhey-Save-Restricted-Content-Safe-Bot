@@ -64,11 +64,11 @@
             <h1 class="font-display text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-3">Study Platform</h1>
             <p class="text-slate-200 text-lg max-w-2xl">Browse videos by subject, folder, category, and recent uploads in one clean place.</p>
 
-            {% if filter_summary.subject or filter_summary.date or filter_summary.q or filter_summary.folder %}
+            {% if filter_summary.subject or filter_summary.date or filter_summary.q or filter_summary.folder or filter_summary.subfolder %}
             <div class="glass-card inline-block px-4 py-2 rounded-full mt-4">
                 <span class="text-slate-300 text-sm">
                     <i class="fas fa-filter mr-2 text-cyan"></i>
-                    Showing: {% if filter_summary.q %}Search "{{ filter_summary.q }}"{% endif %}{% if filter_summary.subject %} · {{ filter_summary.subject }}{% endif %}{% if filter_summary.folder %} · {{ filter_summary.folder }}{% endif %}{% if filter_summary.date %} · {{ filter_summary.date }}{% endif %}
+                    Showing: {% if filter_summary.q %}Search "{{ filter_summary.q }}"{% endif %}{% if filter_summary.subject %} · {{ filter_summary.subject }}{% endif %}{% if filter_summary.folder %} · {{ filter_summary.folder }}{% endif %}{% if filter_summary.subfolder %} / {{ filter_summary.subfolder }}{% endif %}{% if filter_summary.date %} · {{ filter_summary.date }}{% endif %}
                 </span>
             </div>
             {% endif %}
@@ -83,6 +83,8 @@
                     class="px-4 py-3 rounded-full bg-white/10 border border-white/20 text-white placeholder-slate-400 focus:outline-none focus:border-cyan focus:bg-white/15 backdrop-blur-sm w-32 transition-all duration-300" />
                 <input type="text" name="folder" value="{{ request.args.get('folder','') }}" placeholder="Folder"
                     class="px-4 py-3 rounded-full bg-white/10 border border-white/20 text-white placeholder-slate-400 focus:outline-none focus:border-cyan focus:bg-white/15 backdrop-blur-sm w-32 hidden md:block transition-all duration-300" />
+                <input type="text" name="subfolder" value="{{ request.args.get('subfolder','') }}" placeholder="Subfolder"
+                    class="px-4 py-3 rounded-full bg-white/10 border border-white/20 text-white placeholder-slate-400 focus:outline-none focus:border-cyan focus:bg-white/15 backdrop-blur-sm w-36 hidden lg:block transition-all duration-300" />
                 <input type="text" name="date" value="{{ request.args.get('date','') }}" placeholder="Date"
                     class="px-4 py-3 rounded-full bg-white/10 border border-white/20 text-white placeholder-slate-400 focus:outline-none focus:border-cyan focus:bg-white/15 backdrop-blur-sm w-36 hidden lg:block transition-all duration-300" />
                 <button type="submit" class="px-6 py-3 rounded-full bg-white text-deep font-semibold hover:bg-slate-100 transition-all duration-300 hover:shadow-lg hover:shadow-white/20 hover:-translate-y-0.5">
@@ -100,10 +102,10 @@
 <section class="mb-8 section-animate">
     <div class="flex flex-wrap gap-3">
         {% for playlist in playlists %}
-        <a href="/study?subject={{ playlist.subject|urlencode }}&folder={{ playlist.folder|urlencode }}"
+        <a href="/study?subject={{ playlist.subject|urlencode }}&folder={{ playlist.folder|urlencode }}{% if playlist.subfolder %}&subfolder={{ playlist.subfolder|urlencode }}{% endif %}"
             class="filter-pill glass-card px-5 py-2.5 rounded-full text-sm font-medium text-slate-300 hover:text-white hover:border-electric/50 flex items-center gap-2">
             <i class="fas fa-folder text-xs text-cyan"></i>
-            {{ playlist.subject }} / {{ playlist.folder }}
+            {{ playlist.subject }} / {{ playlist.folder }}{% if playlist.subfolder %} / {{ playlist.subfolder }}{% endif %}
             <span class="px-2 py-0.5 rounded-full bg-electric/20 text-electric text-xs">{{ playlist.videos|length }}</span>
         </a>
         {% endfor %}

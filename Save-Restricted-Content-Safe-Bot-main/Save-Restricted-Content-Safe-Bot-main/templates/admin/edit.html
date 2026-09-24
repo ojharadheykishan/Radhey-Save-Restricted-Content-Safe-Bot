@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Video{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <div class="flex items-center justify-between mb-8">
+        <div>
+            <p class="text-cyan text-sm font-semibold uppercase tracking-widest">Video management</p>
+            <h1 class="font-display text-3xl font-bold text-white mt-2">Edit video details</h1>
+            <p class="text-slate-400 mt-2">Rename the video and place it in a folder or subfolder.</p>
+        </div>
+        <a href="/admin/dashboard" class="px-4 py-2 rounded-xl glass-card text-slate-300 hover:text-white">
+            <i class="fas fa-arrow-left mr-2"></i>Dashboard
+        </a>
+    </div>
+
+    <form method="post" class="glass-card rounded-2xl p-6 md:p-8 space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <label class="block">
+                <span class="text-slate-300 text-sm font-medium">Video name</span>
+                <input name="title" value="{{ entry.title or '' }}" required class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan">
+            </label>
+            <label class="block">
+                <span class="text-slate-300 text-sm font-medium">Subject</span>
+                <input name="subject" value="{{ entry.subject or 'General' }}" class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan">
+            </label>
+            <label class="block">
+                <span class="text-slate-300 text-sm font-medium">Category</span>
+                <input name="category" value="{{ entry.category or 'General' }}" class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan">
+            </label>
+            <label class="block">
+                <span class="text-slate-300 text-sm font-medium">Folder</span>
+                <input name="folder" value="{{ entry.folder or 'General' }}" required class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan" placeholder="Physics">
+            </label>
+            <label class="block md:col-span-2">
+                <span class="text-slate-300 text-sm font-medium">Subfolder</span>
+                <input name="subfolder" value="{{ entry.subfolder or '' }}" class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan" placeholder="Mechanics / Chapter 1">
+            </label>
+            <label class="block md:col-span-2">
+                <span class="text-slate-300 text-sm font-medium">Description</span>
+                <textarea name="description" rows="5" class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan">{{ entry.description or '' }}</textarea>
+            </label>
+        </div>
+
+        <div class="flex items-center justify-between border-t border-white/10 pt-6">
+            <a href="{{ entry.player_url }}" target="_blank" class="text-electric hover:text-cyan text-sm">
+                <i class="fas fa-play mr-2"></i>Preview video
+            </a>
+            <button type="submit" class="px-6 py-3 rounded-xl bg-cyan text-slate-950 font-semibold hover:bg-cyan/80">
+                <i class="fas fa-save mr-2"></i>Save changes
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
