@@ -2,6 +2,9 @@
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
+[variables]
+PUBLIC_BASE_URL = "https://radhey-save-restricted-content-safe-bot-production.up.railway.app"
+
 [deploy]
 healthcheckPath = "/health"
 healthcheckTimeout = 300
