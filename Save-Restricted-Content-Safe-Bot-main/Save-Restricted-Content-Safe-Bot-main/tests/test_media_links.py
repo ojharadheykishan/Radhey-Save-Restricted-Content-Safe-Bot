@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -145,6 +146,51 @@ def test_find_duplicate_media_matches_content_hash(tmp_path):
     duplicate = media_links.find_duplicate_media(str(source), str(catalog_path))
 
     assert duplicate["token"] == "existing"
+
+
+def test_app_data_dir_migrates_legacy_catalog_and_stream_cache(tmp_path, monkeypatch):
+    fake_core = tmp_path / "source" / "safe_repo" / "core"
+    legacy_mongo = fake_core / "mongo"
+    legacy_cache = fake_core / "stream_cache"
+    legacy_mongo.mkdir(parents=True)
+    legacy_cache.mkdir(parents=True)
+    legacy_catalog = legacy_mongo / "stream_catalog.json"
+    legacy_catalog.write_text(json.dumps([{"token": "approved", "approved": True}]), encoding="utf-8")
+    (legacy_mongo / "stream_links.txt").write_text("approved links", encoding="utf-8")
+    (legacy_cache / "approved_video.mp4").write_bytes(b"saved video")
+    persistent_dir = tmp_path / "railway-volume"
+    monkeypatch.setattr(media_links, "__file__", str(fake_core / "media_links.py"))
+    monkeypatch.setattr(media_links, "_STREAM_CACHE_DIR", None)
+    monkeypatch.delenv("STREAM_CACHE_DIR", raising=False)
+    monkeypatch.setenv("APP_DATA_DIR", str(persistent_dir))
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+
+    data_dir = media_links._get_shared_repo_dir()
+    cache_dir = Path(media_links._get_cache_dir())
+
+    migrated_entries = media_links.read_stream_entries(str(data_dir / "stream_catalog.json"))
+    assert migrated_entries == [{"token": "approved", "approved": True}]
+    assert (data_dir / "stream_links.txt").read_text(encoding="utf-8") == "approved links"
+    assert (cache_dir / "approved_video.mp4").read_bytes() == b"saved video"
+
+
+def test_app_data_dir_does_not_overwrite_existing_approval_catalog(tmp_path, monkeypatch):
+    fake_core = tmp_path / "source" / "safe_repo" / "core"
+    legacy_mongo = fake_core / "mongo"
+    legacy_mongo.mkdir(parents=True)
+    (legacy_mongo / "stream_catalog.json").write_text(json.dumps([{"token": "old", "approved": False}]), encoding="utf-8")
+    persistent_dir = tmp_path / "railway-volume"
+    persistent_dir.mkdir()
+    persistent_catalog = persistent_dir / "stream_catalog.json"
+    persistent_catalog.write_text(json.dumps([{"token": "kept", "approved": True}]), encoding="utf-8")
+    monkeypatch.setattr(media_links, "__file__", str(fake_core / "media_links.py"))
+    monkeypatch.setenv("APP_DATA_DIR", str(persistent_dir))
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+
+    media_links._get_shared_repo_dir()
+
+    entries = media_links.read_stream_entries(str(persistent_catalog))
+    assert entries == [{"token": "kept", "approved": True}]
 
 
 def test_video_thumbnail_fallback_uses_frame_at_one_minute(tmp_path, monkeypatch):

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}AI Study Assistant{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-3xl">
+    <div class="mb-8">
+        <p class="text-cyan text-sm font-semibold uppercase">Optional AI tool</p>
+        <h1 class="font-display text-3xl font-bold text-white mt-2">Study Assistant</h1>
+        <p class="text-slate-400 mt-2">Ask one study question at a time. Your account, watch history and saved media are never attached.</p>
+    </div>
+
+    {% if not ai_config.enabled %}
+    <div class="glass-card rounded-2xl p-6 text-slate-300">The assistant is currently unavailable because no AI provider has been configured.</div>
+    {% elif not ai_config.authenticated %}
+    <div class="glass-card rounded-2xl p-6 text-slate-300">Please <a class="text-cyan underline" href="/auth/login">log in</a> to use the assistant.</div>
+    {% else %}
+    <div class="glass-card rounded-2xl p-5 sm:p-7">
+        <div id="ai-messages" class="mb-5 max-h-[50vh] space-y-3 overflow-y-auto" aria-live="polite"></div>
+        <form id="ai-form" class="space-y-4">
+            <label for="ai-question" class="block text-sm font-medium text-slate-200">Your question</label>
+            <textarea id="ai-question" maxlength="2000" required rows="4" class="w-full rounded-xl border border-white/10 bg-slate-950/70 p-4 text-white placeholder-slate-500 focus:border-cyan focus:outline-none" placeholder="Ask a study question..."></textarea>
+            <label class="flex items-start gap-3 text-sm text-slate-400">
+                <input id="ai-consent" type="checkbox" required class="mt-1 accent-cyan">
+                <span>I agree to send this question to the configured AI provider. The provider may process it under its own privacy policy. I will not include passwords, contact details or other sensitive information.</span>
+            </label>
+            <div class="flex items-center justify-between gap-3">
+                <button id="ai-clear" type="button" class="rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/5">Clear this page</button>
+                <button id="ai-submit" type="submit" class="rounded-lg bg-cyan-600 px-5 py-2.5 font-semibold text-white hover:bg-cyan-500 disabled:opacity-50">Ask AI</button>
+            </div>
+            <p id="ai-status" class="min-h-5 text-sm text-slate-400" role="status">Up to 10 questions per hour. Questions are sent one at a time and are not saved by this website.</p>
+        </form>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+{% if ai_config.enabled and ai_config.authenticated %}
+<script>
+    const aiForm = document.getElementById('ai-form');
+    const aiQuestion = document.getElementById('ai-question');
+    const aiConsent = document.getElementById('ai-consent');
+    const aiMessages = document.getElementById('ai-messages');
+    const aiStatus = document.getElementById('ai-status');
+    const aiSubmit = document.getElementById('ai-submit');
+
+    function addAiMessage(label, text) {
+        const item = document.createElement('article');
+        item.className = 'rounded-xl border border-white/10 bg-white/5 p-4';
+        const heading = document.createElement('p');
+        heading.className = 'mb-2 text-xs font-semibold uppercase text-cyan-300';
+        heading.textContent = label;
+        const body = document.createElement('p');
+        body.className = 'whitespace-pre-wrap break-words text-sm leading-6 text-slate-200';
+        body.textContent = text;
+        item.append(heading, body);
+        aiMessages.append(item);
+        item.scrollIntoView({ block: 'nearest' });
+    }
+
+    aiForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        const question = aiQuestion.value.trim();
+        if (!question || !aiConsent.checked) return;
+        aiSubmit.disabled = true;
+        aiStatus.textContent = 'Sending this question to the configured provider...';
+        try {
+            const response = await fetch('/api/ai/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question, consent: true }),
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.error || 'AI request failed.');
+            addAiMessage('You', question);
+            addAiMessage(result.provider || 'AI assistant', result.answer);
+            aiQuestion.value = '';
+            aiStatus.textContent = 'Answered. This page keeps the conversation only until you clear it or leave.';
+        } catch (error) {
+            aiStatus.textContent = error.message || 'AI request failed.';
+        } finally {
+            aiSubmit.disabled = false;
+            aiQuestion.focus();
+        }
+    });
+
+    document.getElementById('ai-clear').addEventListener('click', () => {
+        aiMessages.replaceChildren();
+        aiStatus.textContent = 'Page conversation cleared. Questions are not saved by this website.';
+    });
+</script>
+{% endif %}
+{% endblock %}

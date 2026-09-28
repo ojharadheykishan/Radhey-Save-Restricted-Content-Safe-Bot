@@ -83,6 +83,7 @@ python3 -m safe_repo
 ## Deploy on Railway
 
 - Deploy the repository as a web service using the included `Dockerfile`.
+- Add a Railway Volume to this service with mount path `/data` before deploying this update. The app stores `stream_catalog.json`, `stream_links.txt`, and the video/PDF cache in `APP_DATA_DIR` (`/data`); without the mounted volume, Railway redeploys can reset approvals and break saved media links. Existing files are copied from the old local data directory only when the corresponding volume files do not already exist. If the old deployment is still running, back up its `safe_repo/core/mongo/stream_catalog.json`, `safe_repo/core/mongo/stream_links.txt`, and `safe_repo/core/stream_cache/` to the new volume before replacing it. Do not overwrite an existing volume catalog with an empty export.
 - In Railway, open **Settings > Networking** and generate a public domain.
 - Railway's `RAILWAY_PUBLIC_DOMAIN` is detected automatically. You can also set `PUBLIC_BASE_URL` to `https://your-domain.up.railway.app`.
 - Keep the service listening on Railway's assigned `PORT` (the included `Dockerfile` and `app.py` already do this).
@@ -98,6 +99,7 @@ python3 -m safe_repo
 
 - Set `STUDY_ADMIN_USERNAME` and `STUDY_ADMIN_PASSWORD` for a single owner, or set `STUDY_ADMIN_USERS` to a JSON object mapping usernames to `{ "password": "...", "role": "owner|editor|viewer" }`. Keep these values in deployment secrets, not source control.
 - Set `STUDY_ADMIN_TELEGRAM_IDS` to comma-separated Telegram chat IDs to receive new-media alerts.
+- The optional AI Study Assistant is disabled until a random `FLASK_SECRET_KEY` (at least 32 characters), `AI_API_BASE_URL` and `AI_MODEL` are set; set `AI_API_KEY` and `AI_PROVIDER_NAME` as required by your selected OpenAI-compatible provider. Keep credentials in deployment secrets. Only the current question is sent after the logged-in user gives consent; profile data, viewing history and saved media are not sent or stored by this app. The provider may process prompts under its own terms, so use a provider whose privacy policy you accept. A self-hosted OpenAI-compatible endpoint can be used for more control.
 - Browser push requires an HTTPS site, users logged into the website, and VAPID values in `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (path to the PEM file), and `VAPID_CLAIMS_EMAIL`. Generate a VAPID key pair with `vapid --gen --private-key /secure/path/vapid_private.pem`; get its public key with `vapid --applicationServerKey --private-key /secure/path/vapid_private.pem`.
 - Set `STREAM_CACHE_MAX_GB` to cap media cache size (`0` disables the quota) and `STREAM_CACHE_MAX_AGE_HOURS` to control cleanup retention. Defaults are unlimited quota and 7 hours.
 - Text-based PDFs are indexed automatically. Docker images include English and Hindi Tesseract data for scanned PDF OCR; set `PDF_OCR_LANG` as needed (for example, `eng+hin`).

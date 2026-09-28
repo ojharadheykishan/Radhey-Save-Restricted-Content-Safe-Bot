@@ -10,6 +10,7 @@ from safe_repo.core.media_links import get_stream_file, get_stream_thumbnail, re
 from safe_repo.web.admin import admin_dashboard_view, admin_login_view, admin_logout_view, toggle_featured_view, toggle_trending_view, delete_entry_view, edit_entry_view, bulk_action_view, rename_folder_view, require_admin, is_admin
 from safe_repo.web.api import register_api_routes
 from safe_repo.web import auth as auth_module, users as users_module
+from safe_repo.web.ai import ai_chat, ai_page_config
 from safe_repo.web.study import build_public_study_url, build_video_index, load_catalog_entries
 
 app = Flask(__name__)
@@ -78,6 +79,18 @@ def study_home():
     filter_summary = index.get("filter_summary", {})
 
     return render_template('study.html', videos=videos, date_groups=index.get("date_groups", []), featured=featured, latest=latest, trending=trending, subjects=subjects, categories=categories, folders=folders, folder_tree=folder_tree, playlists=playlists, filter_summary=filter_summary, request=request)
+
+
+@app.route('/ai')
+def ai_study_page():
+    return render_template('ai.html', ai_config=ai_page_config())
+
+
+@app.route('/api/ai/chat', methods=['POST'])
+def api_ai_chat():
+    response = app.make_response(ai_chat())
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route('/go')

@@ -4,12 +4,15 @@ import re
 import shutil
 import uuid
 import hashlib
+import logging
 from datetime import datetime as dt, timedelta
 from pathlib import Path
 from typing import Optional, Dict, List
 from urllib.parse import urlparse, urlunparse
 
+logger = logging.getLogger(__name__)
 _STREAM_CACHE_DIR = None
+_WARNED_UNMOUNTED_RAILWAY_DATA = False
 try:
     _CLEANUP_MAX_AGE_HOURS = max(1, int(os.environ.get("STREAM_CACHE_MAX_AGE_HOURS", "7")))
 except (TypeError, ValueError):
@@ -17,7 +20,29 @@ except (TypeError, ValueError):
 
 
 def _get_shared_repo_dir():
-    return Path(__file__).resolve().parent / "mongo"
+    configured_dir = os.environ.get("APP_DATA_DIR", "").strip()
+    legacy_dir = Path(__file__).resolve().parent / "mongo"
+    if not configured_dir:
+        return legacy_dir
+
+    global _WARNED_UNMOUNTED_RAILWAY_DATA
+    data_dir = Path(configured_dir).expanduser()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    if os.environ.get("RAILWAY_ENVIRONMENT") and not os.path.ismount(data_dir) and not _WARNED_UNMOUNTED_RAILWAY_DATA:
+        logger.error("APP_DATA_DIR=%s is not a mounted Railway volume; media catalog and files may be lost on redeploy", data_dir)
+        _WARNED_UNMOUNTED_RAILWAY_DATA = True
+
+    for filename in ("stream_catalog.json", "stream_links.txt"):
+        source = legacy_dir / filename
+        destination = data_dir / filename
+        if source.is_file() and not destination.exists():
+            shutil.copy2(source, destination)
+
+    legacy_cache = legacy_dir.parent / "stream_cache"
+    persistent_cache = data_dir / "stream_cache"
+    if legacy_cache.is_dir() and not persistent_cache.exists():
+        shutil.copytree(legacy_cache, persistent_cache)
+    return data_dir
 
 
 def _get_cache_dir(cache_dir=None):
@@ -33,6 +58,13 @@ def _get_cache_dir(cache_dir=None):
     env_dir = os.environ.get("STREAM_CACHE_DIR")
     if env_dir:
         _STREAM_CACHE_DIR = str(Path(env_dir).expanduser())
+        return _STREAM_CACHE_DIR
+
+    app_data_dir = os.environ.get("APP_DATA_DIR", "").strip()
+    if app_data_dir:
+        cache_path = _get_shared_repo_dir() / "stream_cache"
+        cache_path.mkdir(parents=True, exist_ok=True)
+        _STREAM_CACHE_DIR = str(cache_path)
         return _STREAM_CACHE_DIR
 
     base_dir = Path(__file__).resolve().parent / "stream_cache"
