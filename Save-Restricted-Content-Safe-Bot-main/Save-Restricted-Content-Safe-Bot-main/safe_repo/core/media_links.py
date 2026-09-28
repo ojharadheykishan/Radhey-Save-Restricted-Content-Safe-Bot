@@ -3,13 +3,17 @@ import os
 import re
 import shutil
 import uuid
+import hashlib
 from datetime import datetime as dt, timedelta
 from pathlib import Path
 from typing import Optional, Dict, List
 from urllib.parse import urlparse, urlunparse
 
 _STREAM_CACHE_DIR = None
-_CLEANUP_MAX_AGE_HOURS = 7
+try:
+    _CLEANUP_MAX_AGE_HOURS = max(1, int(os.environ.get("STREAM_CACHE_MAX_AGE_HOURS", "7")))
+except (TypeError, ValueError):
+    _CLEANUP_MAX_AGE_HOURS = 7
 
 
 def _get_shared_repo_dir():
@@ -96,7 +100,154 @@ def _get_max_stream_file_size_bytes(max_size_mb=None):
         return 5000 * 1024 * 1024
 
 
-def save_stream_file(source_path, base_url=None, cache_dir=None, max_size_mb=None) -> Optional[Dict[str, str]]:
+def _create_media_thumbnail(source_path, output_path):
+    """Create a JPEG preview for videos and PDFs when no source thumbnail exists."""
+    try:
+        if Path(source_path).suffix.lower() == ".pdf":
+            import fitz
+
+            with fitz.open(source_path) as document:
+                if not document.page_count:
+                    return False
+                pixmap = document[0].get_pixmap(matrix=fitz.Matrix(1, 1), alpha=False)
+                pixmap.save(str(output_path))
+                return output_path.exists() and output_path.stat().st_size > 0
+
+        import cv2
+
+        capture = cv2.VideoCapture(str(source_path))
+        if not capture.isOpened():
+            capture.release()
+            return False
+        frame_count = capture.get(cv2.CAP_PROP_FRAME_COUNT)
+        if frame_count > 0:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, int(frame_count / 2))
+        success, frame = capture.read()
+        capture.release()
+        if not success or frame is None:
+            return False
+        height, width = frame.shape[:2]
+        scale = min(1, 640 / max(width, height))
+        if scale < 1:
+            frame = cv2.resize(frame, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_AREA)
+        return bool(cv2.imwrite(str(output_path), frame, [cv2.IMWRITE_JPEG_QUALITY, 85]))
+    except Exception:
+        return False
+
+
+def _store_stream_thumbnail(source_path, token, cache_path, thumbnail_path=None):
+    target = cache_path / f"{token}.thumb.jpg"
+    if thumbnail_path and os.path.exists(thumbnail_path):
+        try:
+            import cv2
+
+            image = cv2.imread(str(thumbnail_path))
+            if image is not None and cv2.imwrite(str(target), image, [cv2.IMWRITE_JPEG_QUALITY, 85]):
+                return target
+        except Exception:
+            pass
+    if _create_media_thumbnail(source_path, target):
+        return target
+    return None
+
+
+def store_stream_thumbnail(token, source_path):
+    """Validate and replace a cached item's thumbnail with an admin-selected image."""
+    entry = get_stream_file(token)
+    if not entry or not source_path or not os.path.exists(source_path):
+        return None
+    try:
+        import cv2
+
+        image = cv2.imread(str(source_path))
+        if image is None:
+            return None
+        height, width = image.shape[:2]
+        scale = min(1, 640 / max(width, height))
+        if scale < 1:
+            image = cv2.resize(image, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_AREA)
+        target = Path(entry["file_path"]).parent / f"{token}.thumb.jpg"
+        return str(target) if cv2.imwrite(str(target), image, [cv2.IMWRITE_JPEG_QUALITY, 88]) else None
+    except Exception:
+        return None
+
+
+def get_file_sha256(source_path):
+    digest = hashlib.sha256()
+    with open(source_path, "rb") as media_file:
+        for chunk in iter(lambda: media_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def extract_pdf_text(source_path, max_chars=200000):
+    """Extract PDF text, using local Tesseract OCR for scanned pages when installed."""
+    if Path(source_path).suffix.lower() != ".pdf":
+        return ""
+    try:
+        import fitz
+
+        with fitz.open(source_path) as document:
+            extracted = []
+            extracted_length = 0
+            for page in document:
+                text = page.get_text()
+                if not text.strip():
+                    try:
+                        import pytesseract
+                        from PIL import Image
+
+                        pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), colorspace=fitz.csRGB, alpha=False)
+                        image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+                        text = pytesseract.image_to_string(image, lang=os.environ.get("PDF_OCR_LANG", "eng"))
+                    except Exception:
+                        text = ""
+                extracted.append(text)
+                extracted_length += len(text)
+                if extracted_length >= max_chars:
+                    break
+            return "\n".join(extracted)[:max_chars]
+    except Exception:
+        return ""
+
+
+def find_duplicate_media(source_path, catalog_path=None):
+    """Find an existing catalog record with the same SHA-256 content hash."""
+    if not source_path or not os.path.isfile(source_path):
+        return None
+    content_hash = get_file_sha256(source_path)
+    for entry in read_stream_entries(catalog_path):
+        if entry.get("content_hash") == content_hash:
+            return entry
+    return None
+
+
+def get_stream_cache_stats(cache_dir=None):
+    cache_path = Path(_get_cache_dir(cache_dir))
+    media_files = 0
+    total_bytes = 0
+    if cache_path.exists():
+        for path in cache_path.iterdir():
+            if path.is_file():
+                try:
+                    total_bytes += path.stat().st_size
+                    if not path.name.endswith(".thumb.jpg"):
+                        media_files += 1
+                except OSError:
+                    continue
+    try:
+        quota_bytes = int(float(os.environ.get("STREAM_CACHE_MAX_GB", "0")) * 1024 ** 3)
+    except (TypeError, ValueError):
+        quota_bytes = 0
+    return {
+        "media_files": media_files,
+        "used_bytes": total_bytes,
+        "quota_bytes": max(0, quota_bytes),
+        "retention_hours": _CLEANUP_MAX_AGE_HOURS,
+    }
+
+
+def save_stream_file(source_path, base_url=None, cache_dir=None, max_size_mb=None, thumbnail_path=None) -> Optional[Dict[str, str]]:
     """Copy a local media file into a public cache directory and return stream URLs."""
     import logging
     logger = logging.getLogger(__name__)
@@ -115,11 +266,18 @@ def save_stream_file(source_path, base_url=None, cache_dir=None, max_size_mb=Non
     try:
         cache_path = Path(_get_cache_dir(cache_dir))
         cache_path.mkdir(parents=True, exist_ok=True)
+        cache_stats = get_stream_cache_stats(str(cache_path))
+        if cache_stats["quota_bytes"] and cache_stats["used_bytes"] + file_size > cache_stats["quota_bytes"]:
+            logger.warning("save_stream_file: configured cache quota would be exceeded")
+            return None
 
         token = uuid.uuid4().hex
         safe_name = os.path.basename(source_path).replace(" ", "_")
         target_path = cache_path / f"{token}_{safe_name}"
         shutil.copy2(source_path, target_path)
+        stored_thumbnail = _store_stream_thumbnail(source_path, token, cache_path, thumbnail_path)
+        content_hash = get_file_sha256(source_path)
+        pdf_text = extract_pdf_text(source_path)
 
         base_url = _get_base_url(base_url)
         result = {
@@ -127,7 +285,12 @@ def save_stream_file(source_path, base_url=None, cache_dir=None, max_size_mb=Non
             "file_path": str(target_path),
             "stream_url": f"{base_url}/stream/{token}",
             "player_url": f"{base_url}/player/{token}",
+            "content_hash": content_hash,
         }
+        if pdf_text:
+            result["pdf_text"] = pdf_text
+        if stored_thumbnail:
+            result["thumbnail_url"] = f"{base_url}/thumbnail/{token}"
         logger.info(f"save_stream_file: successfully saved {source_path} to {target_path} with URLs: {result['stream_url']}")
         return result
     except Exception as e:
@@ -163,7 +326,7 @@ def get_catalog_path(catalog_path=None):
     return str(repo_dir / "stream_catalog.json")
 
 
-def append_stream_link(player_url, stream_url, label="stream", archive_path=None, catalog_path=None, subject=None, description=None, title=None, token=None):
+def append_stream_link(player_url, stream_url, label="stream", archive_path=None, catalog_path=None, subject=None, description=None, title=None, token=None, thumbnail_url=None, media_type="video", content_hash=None, pdf_text=None, transcript="", subtitles="", playlist="", sort_order=0, approved=True, folder=None, subfolder=None, category=None):
     """Append a generated stream link to a text archive file and save structured metadata."""
     archive_file = Path(get_archive_path(archive_path))
     archive_file.parent.mkdir(parents=True, exist_ok=True)
@@ -182,11 +345,23 @@ def append_stream_link(player_url, stream_url, label="stream", archive_path=None
         "date": dt.now().strftime("%Y-%m-%d"),
         "label": label,
         "subject": subject or "General",
+        "category": category or "General",
+        "folder": folder or "",
+        "subfolder": subfolder or "",
         "description": description or "",
         "title": title or (subject or "Untitled"),
         "token": token or os.path.basename(player_url).split("/")[-1],
         "player_url": player_url,
         "stream_url": stream_url,
+        "thumbnail_url": thumbnail_url or "",
+        "media_type": media_type or "video",
+        "content_hash": content_hash or "",
+        "pdf_text": (pdf_text or "")[:200000],
+        "transcript": transcript or "",
+        "subtitles": subtitles or "",
+        "playlist": playlist or "",
+        "sort_order": int(sort_order or 0),
+        "approved": bool(approved),
     }
     entries.append(entry)
     with catalog_file.open("w", encoding="utf-8") as handle:
@@ -243,13 +418,30 @@ def get_stream_entry(token, catalog_path=None):
     return None
 
 
+def get_stream_thumbnail(token):
+    """Return a cached thumbnail, generating one for older cached video/PDF files."""
+    entry = get_stream_file(token)
+    if not entry:
+        return None
+    cache_path = Path(entry["file_path"]).parent
+    thumbnail_path = cache_path / f"{token}.thumb.jpg"
+    if thumbnail_path.is_file():
+        return str(thumbnail_path)
+    if _create_media_thumbnail(entry["file_path"], thumbnail_path):
+        return str(thumbnail_path)
+    return None
+
+
 def cleanup_old_stream_files(max_age_hours=None, cache_dir=None):
     """Remove cached stream files older than max_age_hours."""
     import logging
     logger = logging.getLogger(__name__)
 
     if max_age_hours is None:
-        max_age_hours = _CLEANUP_MAX_AGE_HOURS
+        try:
+            max_age_hours = int(os.environ.get("STREAM_CACHE_MAX_AGE_HOURS", _CLEANUP_MAX_AGE_HOURS))
+        except (TypeError, ValueError):
+            max_age_hours = _CLEANUP_MAX_AGE_HOURS
 
     cache_path = Path(_get_cache_dir(cache_dir))
     if not cache_path.exists():

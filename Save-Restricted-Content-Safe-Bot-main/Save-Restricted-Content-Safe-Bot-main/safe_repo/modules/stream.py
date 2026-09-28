@@ -11,7 +11,7 @@ from datetime import datetime
 from pyrogram import filters
 from safe_repo import app
 from config import STREAM_CHANNEL, STREAM_CHANNEL_USERNAME, CLONE_LOG_CHANNEL, PREMIUM_ARCHIVE_CHANNEL
-from safe_repo.core.media_links import append_stream_link, save_stream_file, read_stream_links
+from safe_repo.core.media_links import append_stream_link, find_duplicate_media, save_stream_file, read_stream_links
 from safe_repo.web.study import build_public_study_url
 
 logger = logging.getLogger(__name__)
@@ -94,6 +94,7 @@ def extract_stream_metadata(message, fallback_title=None):
     title = fallback_title or "Untitled"
     description = caption
     subject = "General"
+    explicit_subject = False
     date = datetime.now().strftime("%Y-%m-%d")
 
     if caption:
@@ -103,9 +104,21 @@ def extract_stream_metadata(message, fallback_title=None):
         for line in lines:
             if line.lower().startswith("subject:"):
                 subject = line.split(":", 1)[1].strip() or subject
+                explicit_subject = True
                 break
             if line.lower().startswith("topic:"):
                 subject = line.split(":", 1)[1].strip() or subject
+                explicit_subject = True
+                break
+
+    if not explicit_subject:
+        from safe_repo.core.media_links import read_stream_entries
+
+        searchable = f"{caption} {title}".casefold()
+        subjects = {str(entry.get("subject") or "").strip() for entry in read_stream_entries()}
+        for candidate in sorted((value for value in subjects if value and value != "General"), key=len, reverse=True):
+            if candidate.casefold() in searchable:
+                subject = candidate
                 break
 
     return {"subject": subject, "description": description, "title": title, "date": date}
@@ -259,6 +272,16 @@ async def archive_media_for_premium(message):
 async def build_public_stream_link(message, media_file=None):
     """Build a public stream link from local cache when possible, else fall back to a Telegram channel post for large or unsupported files."""
     if media_file and os.path.exists(media_file):
+        duplicate = find_duplicate_media(media_file)
+        if duplicate and duplicate.get("token"):
+            logger.info("Media already exists in the website catalog: %s", duplicate.get("token"))
+            return {
+                "source": "duplicate",
+                "player_url": duplicate.get("player_url"),
+                "stream_url": duplicate.get("stream_url"),
+                "token": duplicate.get("token"),
+                "thumbnail_url": duplicate.get("thumbnail_url"),
+            }
         try:
             logger.info(f"build_public_stream_link: attempting to cache file {media_file}")
             saved = save_stream_file(media_file)
@@ -269,6 +292,9 @@ async def build_public_stream_link(message, media_file=None):
                     "player_url": saved["player_url"],
                     "stream_url": saved["stream_url"],
                     "token": saved["token"],
+                    "thumbnail_url": saved.get("thumbnail_url"),
+                    "content_hash": saved.get("content_hash"),
+                    "pdf_text": saved.get("pdf_text"),
                 }
             else:
                 logger.warning(f"build_public_stream_link: save_stream_file returned None")
@@ -454,16 +480,23 @@ async def handle_direct_media(client, message):
         
         metadata = extract_stream_metadata(message, fallback_title=os.path.basename(media_file))
         study_url = build_public_study_link(metadata)
-        append_stream_link(
-            public_link['player_url'],
-            public_link['stream_url'],
-            label="direct_media",
-            subject=metadata['subject'],
-            description=metadata['description'],
-            title=metadata['title'],
-            token=public_link.get('token'),
-        )
-        await archive_stream_link(message, public_link['player_url'], public_link['stream_url'], study_url=study_url)
+        if public_link.get("source") != "duplicate":
+            append_stream_link(
+                public_link['player_url'],
+                public_link['stream_url'],
+                label="direct_media",
+                subject=metadata['subject'],
+                description=metadata['description'],
+                title=metadata['title'],
+                token=public_link.get('token'),
+                thumbnail_url=public_link.get('thumbnail_url'),
+                media_type="pdf" if getattr(getattr(message, "document", None), "mime_type", "") == "application/pdf" else "video",
+                content_hash=public_link.get('content_hash'),
+                pdf_text=public_link.get('pdf_text'),
+            )
+            from safe_repo.web.notifications import notify_new_media
+            await notify_new_media(metadata["title"], public_link["player_url"])
+            await archive_stream_link(message, public_link['player_url'], public_link['stream_url'], study_url=study_url)
 
         text = build_stream_reply_text(public_link, study_url=study_url)
         logger.info(f"handle_direct_media: sending final reply message")

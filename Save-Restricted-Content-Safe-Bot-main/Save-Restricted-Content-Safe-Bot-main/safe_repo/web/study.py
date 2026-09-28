@@ -111,8 +111,18 @@ def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, A
                 "featured": bool(raw_entry.get("featured")),
                 "trending": bool(raw_entry.get("trending")),
                 "views": int(raw_entry.get("views") or 0),
+                "completion_count": int(raw_entry.get("completion_count") or 0),
                 "player_url": player_url,
                 "stream_url": stream_url,
+                "thumbnail_url": str(raw_entry.get("thumbnail_url") or (f"/thumbnail/{token}" if token else "")),
+                "media_type": str(raw_entry.get("media_type") or "video").lower(),
+                "approved": bool(raw_entry.get("approved", True)),
+                "transcript": str(raw_entry.get("transcript") or ""),
+                "subtitles": str(raw_entry.get("subtitles") or ""),
+                "playlist": str(raw_entry.get("playlist") or ""),
+                "sort_order": int(raw_entry.get("sort_order") or 0),
+                "pdf_text": str(raw_entry.get("pdf_text") or ""),
+                "content_hash": str(raw_entry.get("content_hash") or ""),
                 "watch_url": _build_watch_url(token),
             }
         )
@@ -120,15 +130,18 @@ def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, A
     return entries
 
 
-def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str] = None, date: Optional[str] = None, q: Optional[str] = None, folder: Optional[str] = None, subfolder: Optional[str] = None) -> Dict[str, Any]:
+def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str] = None, date: Optional[str] = None, q: Optional[str] = None, folder: Optional[str] = None, subfolder: Optional[str] = None, playlist: Optional[str] = None, media_type: Optional[str] = None, include_pending: bool = False) -> Dict[str, Any]:
     """Build a study-site index from catalog entries and optional filters."""
-    videos = load_catalog_entries(catalog_path)
+    all_videos = load_catalog_entries(catalog_path)
+    videos = all_videos if include_pending else [video for video in all_videos if video.get("approved", True)]
 
     subject_param = (subject or "").strip()
     date_param = (date or "").strip()
     query_param = (q or "").strip()
     folder_param = (folder or "").strip()
     subfolder_param = (subfolder or "").strip()
+    playlist_param = (playlist or "").strip()
+    media_type_param = (media_type or "").strip().lower()
     subject_filter = subject_param.lower()
     date_filter = date_param
     search_query = query_param.lower()
@@ -140,9 +153,10 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
         title = str(video.get("title", "") or "").lower()
         subject_name = str(video.get("subject", "") or "").lower()
         description = str(video.get("description", "") or "").lower()
+        searchable_text = " ".join((description, str(video.get("pdf_text", "") or ""), str(video.get("transcript", "") or ""))).lower()
         folder_name = str(video.get("folder") or "General").lower()
         subfolder_name = str(video.get("subfolder") or "").lower()
-        if search_query and search_query not in title and search_query not in subject_name and search_query not in description:
+        if search_query and search_query not in title and search_query not in subject_name and search_query not in searchable_text:
             continue
         if subject_filter and subject_filter != str(video.get("subject", "")).lower():
             continue
@@ -151,6 +165,10 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
         if folder_filter and folder_filter != folder_name:
             continue
         if subfolder_filter and subfolder_filter != subfolder_name:
+            continue
+        if playlist_param and playlist_param.lower() != str(video.get("playlist") or f"{video.get('subject') or 'General'} / {video.get('folder') or 'General'}{f' / {video.get("subfolder")}' if video.get('subfolder') else ''}").lower():
+            continue
+        if media_type_param and media_type_param != str(video.get("media_type") or "video").lower():
             continue
         filtered.append(video)
 
@@ -204,15 +222,23 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
         subject_name = video.get("subject") or "General"
         folder_name = video.get("folder") or "General"
         subfolder_name = video.get("subfolder") or ""
-        key = f"{subject_name}:::{folder_name}:::{subfolder_name}"
-        playlist_map.setdefault(key, []).append(video)
-    for key, subject_videos in sorted(playlist_map.items(), key=lambda item: item[0].lower()):
-        subject_name, folder_name, subfolder_name = key.split(":::" , 2)
-        subject_videos_sorted = sorted(subject_videos, key=lambda item: (item.get("timestamp", "")), reverse=True)
+        default_name = f"{subject_name} / {folder_name}" + (f" / {subfolder_name}" if subfolder_name else "")
+        playlist_name = video.get("playlist") or default_name
+        playlist_map.setdefault(playlist_name, []).append(video)
+    for playlist_name, subject_videos in sorted(playlist_map.items(), key=lambda item: item[0].lower()):
+        first_item = subject_videos[0]
+        has_custom_order = any(int(item.get("sort_order") or 0) for item in subject_videos)
+        subject_videos_sorted = sorted(
+            subject_videos,
+            key=lambda item: (int(item.get("sort_order") or 0), item.get("timestamp", "")),
+            reverse=not has_custom_order,
+        )
         playlists.append({
-            "subject": subject_name,
-            "folder": folder_name,
-            "subfolder": subfolder_name,
+            "name": playlist_name,
+            "subject": first_item.get("subject") or "General",
+            "folder": first_item.get("folder") or "General",
+            "subfolder": first_item.get("subfolder") or "",
+            "count": len(subject_videos),
             "videos": subject_videos_sorted[:6],
         })
 
@@ -248,5 +274,7 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
             "q": query_param if query_param else "",
             "folder": folder_param if folder_param else "",
             "subfolder": subfolder_param if subfolder_param else "",
+            "playlist": playlist_param if playlist_param else "",
+            "media_type": media_type_param if media_type_param else "",
         },
     }

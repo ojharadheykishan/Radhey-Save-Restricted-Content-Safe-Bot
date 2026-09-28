@@ -153,12 +153,17 @@
     canvas: null,
     ctx: null,
     particles: [],
+    palette: ['#42d6c5', '#fb8d72', '#d6ef70', '#5a9dff', '#ff7799'],
     mouseX: 0,
     mouseY: 0,
 
     init() {
       this.canvas = document.getElementById('particle-canvas');
       if (!this.canvas) return;
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        this.canvas.classList.add('hidden');
+        return;
+      }
 
       this.ctx = this.canvas.getContext('2d');
       this.resize();
@@ -187,6 +192,7 @@
           speedX: (Math.random() - 0.5) * 0.5,
           speedY: (Math.random() - 0.5) * 0.5,
           opacity: Math.random() * 0.5 + 0.2,
+          color: this.palette[i % this.palette.length],
         });
       }
     },
@@ -221,8 +227,10 @@
         // Draw particle
         this.ctx.beginPath();
         this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        this.ctx.fillStyle = `rgba(59, 130, 246, ${p.opacity})`;
+        this.ctx.fillStyle = p.color;
+        this.ctx.globalAlpha = p.opacity;
         this.ctx.fill();
+        this.ctx.globalAlpha = 1;
 
         // Draw connections
         this.particles.forEach((p2, j) => {
@@ -232,9 +240,11 @@
             this.ctx.beginPath();
             this.ctx.moveTo(p.x, p.y);
             this.ctx.lineTo(p2.x, p2.y);
-            this.ctx.strokeStyle = `rgba(59, 130, 246, ${0.1 * (1 - d / 120)})`;
+            this.ctx.strokeStyle = p.color;
+            this.ctx.globalAlpha = 0.13 * (1 - d / 120);
             this.ctx.lineWidth = 0.5;
             this.ctx.stroke();
+            this.ctx.globalAlpha = 1;
           }
         });
       });
@@ -537,6 +547,97 @@
     },
   };
 
+  const FolderFilters = {
+    init() {
+      document.querySelectorAll('[data-folder-filter]').forEach((group) => {
+        const folderSelect = group.querySelector('select[name="folder"]');
+        const subfolderSelect = group.querySelector('[data-subfolder-filter]');
+        if (!folderSelect || !subfolderSelect) return;
+
+        const updateSubfolders = (clearSelection = false) => {
+          const folder = folderSelect.value;
+          const options = [...subfolderSelect.options].slice(1);
+          const selectedValue = clearSelection ? '' : subfolderSelect.value;
+          options.forEach((option) => {
+            option.hidden = !folder || option.dataset.folder !== folder;
+          });
+          subfolderSelect.disabled = !folder || !options.some((option) => option.dataset.folder === folder);
+          const matchingOption = options.find((option) => option.value === selectedValue && option.dataset.folder === folder);
+          subfolderSelect.value = matchingOption ? selectedValue : '';
+        };
+
+        folderSelect.addEventListener('change', () => updateSubfolders(true));
+        updateSubfolders();
+      });
+    },
+  };
+
+  const PushNotifications = {
+    async init() {
+      const button = document.getElementById('push-notification-btn');
+      if (!button || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+
+      try {
+        const [configResponse, authResponse] = await Promise.all([
+          fetch('/api/push/config'),
+          fetch('/api/auth/status'),
+        ]);
+        const config = await configResponse.json();
+        const auth = await authResponse.json();
+        if (!config.enabled || !auth.authenticated) return;
+
+        const registration = await navigator.serviceWorker.register('/service-worker.js');
+        let subscription = await registration.pushManager.getSubscription();
+        button.hidden = false;
+        button.title = subscription ? 'Disable notifications' : 'Enable notifications';
+        button.setAttribute('aria-label', button.title);
+
+        if (subscription) {
+          await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subscription }),
+          });
+        }
+
+        button.addEventListener('click', async () => {
+          try {
+            if (subscription) {
+              await fetch('/api/push/unsubscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ endpoint: subscription.endpoint }),
+              });
+              await subscription.unsubscribe();
+              subscription = null;
+              button.title = 'Enable notifications';
+            } else {
+              const permission = await Notification.requestPermission();
+              if (permission !== 'granted') throw new Error('Browser notification permission was not granted');
+              const padding = '='.repeat((4 - config.public_key.length % 4) % 4);
+              const encodedKey = (config.public_key + padding).replace(/-/g, '+').replace(/_/g, '/');
+              const applicationServerKey = Uint8Array.from(atob(encodedKey), character => character.charCodeAt(0));
+              subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+              const response = await fetch('/api/push/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ subscription }),
+              });
+              if (!response.ok) throw new Error('Could not save this browser subscription');
+              button.title = 'Disable notifications';
+            }
+            button.setAttribute('aria-label', button.title);
+            showToast(button.title, 'success');
+          } catch (error) {
+            showToast(error.message || 'Notification setup failed', 'error');
+          }
+        });
+      } catch (_) {
+        button.hidden = true;
+      }
+    },
+  };
+
   // ============================================
   // Initialize Everything
   // ============================================
@@ -554,6 +655,8 @@
     CounterAnimation.init();
     FooterStats.init();
     SmoothScroll.init();
+    FolderFilters.init();
+    PushNotifications.init();
 
     // Add loaded class for initial animations
     document.body.classList.add('loaded');

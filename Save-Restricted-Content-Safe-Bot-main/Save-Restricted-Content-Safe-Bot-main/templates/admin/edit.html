@@ -1,20 +1,21 @@
 {% extends "base.html" %}
 
-{% block title %}Edit Video{% endblock %}
+{% block title %}Edit Media{% endblock %}
 
 {% block content %}
 <div class="max-w-4xl mx-auto">
     <div class="flex items-center justify-between mb-8">
         <div>
-            <p class="text-cyan text-sm font-semibold uppercase tracking-widest">Video management</p>
-            <h1 class="font-display text-3xl font-bold text-white mt-2">Edit video details</h1>
-            <p class="text-slate-400 mt-2">Rename the video and place it in a folder or subfolder.</p>
+            <p class="text-cyan text-sm font-semibold uppercase tracking-widest">Media management</p>
+            <h1 class="font-display text-3xl font-bold text-white mt-2">Edit media details</h1>
+            <p class="text-slate-400 mt-2">Organize, approve, and add learning material.</p>
         </div>
         <a href="/admin/dashboard" class="px-4 py-2 rounded-xl glass-card text-slate-300 hover:text-white">
             <i class="fas fa-arrow-left mr-2"></i>Dashboard
         </a>
     </div>
 
+    {% if error %}<p role="alert" class="mb-4 rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-red-300">{{ error }}</p>{% endif %}
     <form method="post" class="glass-card rounded-2xl p-6 md:p-8 space-y-6">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
             <label class="block">
@@ -31,16 +32,41 @@
             </label>
             <label class="block">
                 <span class="text-slate-300 text-sm font-medium">Folder</span>
-                <input name="folder" value="{{ entry.folder or 'General' }}" required class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan" placeholder="Physics">
+                <input name="folder" list="folder-options" value="{{ entry.folder or 'General' }}" required class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan" placeholder="Choose or create a folder">
+                <datalist id="folder-options">{% for folder in folder_options %}<option value="{{ folder }}">{% endfor %}</datalist>
             </label>
             <label class="block md:col-span-2">
                 <span class="text-slate-300 text-sm font-medium">Subfolder</span>
-                <input name="subfolder" value="{{ entry.subfolder or '' }}" class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan" placeholder="Mechanics / Chapter 1">
+                <input name="subfolder" list="subfolder-options" value="{{ entry.subfolder or '' }}" class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan" placeholder="Choose or create a subfolder">
+                <datalist id="subfolder-options">{% for subfolder in subfolder_options %}<option value="{{ subfolder }}">{% endfor %}</datalist>
+            </label>
+            <label class="block">
+                <span class="text-slate-300 text-sm font-medium">Playlist</span>
+                <input name="playlist" value="{{ entry.playlist or '' }}" class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan" placeholder="Physics revision">
+            </label>
+            <label class="block">
+                <span class="text-slate-300 text-sm font-medium">Playlist order</span>
+                <input name="sort_order" type="number" value="{{ entry.sort_order or 0 }}" class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan">
             </label>
             <label class="block md:col-span-2">
                 <span class="text-slate-300 text-sm font-medium">Description</span>
                 <textarea name="description" rows="5" class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan">{{ entry.description or '' }}</textarea>
             </label>
+            <label class="block md:col-span-2">
+                <span class="text-slate-300 text-sm font-medium">Transcript</span>
+                <textarea name="transcript" rows="8" maxlength="200000" class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 focus:outline-none focus:border-cyan">{{ entry.transcript or '' }}</textarea>
+            </label>
+            <label class="block md:col-span-2">
+                <span class="text-slate-300 text-sm font-medium">Subtitles (WEBVTT)</span>
+                <textarea name="subtitles" rows="8" maxlength="262144" placeholder="WEBVTT" class="mt-2 w-full rounded-xl bg-white/5 border border-white/10 text-white px-4 py-3 font-mono text-sm focus:outline-none focus:border-cyan">{{ entry.subtitles or '' }}</textarea>
+            </label>
+            {% if admin_role == 'owner' %}
+            <label class="md:col-span-2 flex items-center gap-3 text-slate-300">
+                <input name="approved" type="hidden" value="off">
+                <input name="approved" type="checkbox" value="on" class="checkbox-custom" {% if entry.approved %}checked{% endif %}>
+                <span>Approved for public website</span>
+            </label>
+            {% endif %}
         </div>
 
         <div class="flex items-center justify-between border-t border-white/10 pt-6">
@@ -51,6 +77,14 @@
                 <i class="fas fa-save mr-2"></i>Save changes
             </button>
         </div>
+    </form>
+
+    <form method="post" action="/admin/thumbnail/{{ entry.token }}" enctype="multipart/form-data" class="glass-card mt-6 rounded-2xl p-6">
+        <label class="block">
+            <span class="text-slate-300 text-sm font-medium">Replace thumbnail</span>
+            <input type="file" name="thumbnail" accept="image/jpeg,image/png,image/webp" required class="mt-3 block w-full text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan file:px-4 file:py-2 file:font-semibold file:text-slate-950">
+        </label>
+        <button type="submit" class="mt-4 rounded-xl bg-white/10 px-4 py-2 text-white hover:bg-white/20">Upload thumbnail</button>
     </form>
 </div>
 {% endblock %}

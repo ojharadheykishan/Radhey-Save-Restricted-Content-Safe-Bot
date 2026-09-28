@@ -21,6 +21,8 @@ from safe_repo.core.func import (
     process_thumbnail, generate_video_thumbnail, extract_original_thumbnail,
 )
 from safe_repo.core.mongo import db
+from safe_repo.core.media_links import append_stream_link, find_duplicate_media, read_stream_entries, save_stream_file
+from safe_repo.web.notifications import notify_new_media
 from config import LOG_GROUP, CLONE_LOG_CHANNEL
 
 # Configure logging
@@ -110,6 +112,54 @@ def thumbnail(sender, original_thumb_path=None, media_file=None, media_type=None
             pass
 
     return None
+
+
+def _publish_batch_media_to_site(media_file, thumbnail_path, source_message, media_type):
+    """Add a successfully copied batch video/PDF to the website catalog."""
+    duplicate = find_duplicate_media(media_file)
+    if duplicate:
+        logger.info("Batch duplicate already exists in website catalog: %s", duplicate.get("token"))
+        return None
+    saved = save_stream_file(media_file, thumbnail_path=thumbnail_path)
+    if not saved:
+        logger.warning("Batch media could not be cached for the website: %s", media_file)
+        return None
+
+    caption = str(getattr(source_message, "caption", None) or "").strip()
+    lines = [line.strip() for line in caption.splitlines() if line.strip()]
+    subject = "General"
+    for line in lines:
+        if line.lower().startswith(("subject:", "topic:")):
+            subject = line.split(":", 1)[1].strip() or subject
+            break
+    if subject == "General":
+        search_text = f"{caption} {os.path.basename(media_file)}".casefold()
+        known_subjects = {str(entry.get("subject") or "").strip() for entry in read_stream_entries()}
+        for candidate in sorted((name for name in known_subjects if name and name != "General"), key=len, reverse=True):
+            if candidate.casefold() in search_text:
+                subject = candidate
+                break
+
+    folder = next((line.split(":", 1)[1].strip() for line in lines if line.lower().startswith("folder:")), "")
+    subfolder = next((line.split(":", 1)[1].strip() for line in lines if line.lower().startswith("subfolder:")), "")
+
+    append_stream_link(
+        saved["player_url"],
+        saved["stream_url"],
+        label="batch",
+        subject=subject,
+        description=caption,
+        title=lines[0] if lines else os.path.basename(media_file),
+        token=saved["token"],
+        thumbnail_url=saved.get("thumbnail_url"),
+        media_type=media_type,
+        content_hash=saved.get("content_hash"),
+        pdf_text=saved.get("pdf_text"),
+        folder=folder,
+        subfolder=subfolder,
+        approved=False,
+    )
+    return saved
 
 
 async def get_msg(
@@ -394,6 +444,10 @@ async def get_msg(
                     await app.edit_message_text(sender, edit_id, f"Error uploading document: {str(e)}")
 
                 if sent_success and safe_repo:
+                    if is_batch and msg.document.mime_type == "application/pdf":
+                        published = _publish_batch_media_to_site(file, thumb_path, msg, "pdf")
+                        if published:
+                            await notify_new_media(lines[0] if lines else os.path.basename(file), published["player_url"])
                     try:
                         if target_chat_id != LOG_GROUP:
                             await safe_repo.copy(LOG_GROUP)
@@ -466,6 +520,10 @@ async def get_msg(
                     await app.edit_message_text(sender, edit_id, f"Error uploading video: {str(e)}")
 
                 if sent_success and safe_repo:
+                    if is_batch:
+                        published = _publish_batch_media_to_site(file, thumb_path, msg, "video")
+                        if published:
+                            await notify_new_media(lines[0] if lines else os.path.basename(file), published["player_url"])
                     try:
                         if target_chat_id != LOG_GROUP:
                             await safe_repo.copy(LOG_GROUP)

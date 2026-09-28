@@ -15,3 +15,6 @@ reportlab
 PyMuPDF
 cryptg
 email_validator
+pywebpush
+pytesseract
+Pillow

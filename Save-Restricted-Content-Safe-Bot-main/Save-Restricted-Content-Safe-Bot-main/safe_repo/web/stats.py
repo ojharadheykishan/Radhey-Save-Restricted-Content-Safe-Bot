@@ -64,6 +64,7 @@ def compute_stats(catalog_path: Optional[str] = None) -> Dict[str, Any]:
     total_views = 0
     featured_count = 0
     trending_count = 0
+    completion_count = 0
 
     for video in videos:
         date_str = str(video.get("date") or "")
@@ -81,6 +82,7 @@ def compute_stats(catalog_path: Optional[str] = None) -> Dict[str, Any]:
         folder_counts[folder] += 1
 
         total_views += int(video.get("views") or 0)
+        completion_count += int(video.get("completion_count") or 0)
         if video.get("featured"):
             featured_count += 1
         if video.get("trending"):
@@ -91,6 +93,7 @@ def compute_stats(catalog_path: Optional[str] = None) -> Dict[str, Any]:
     stats = {
         "total_videos": len(videos),
         "total_views": total_views,
+        "completion_count": completion_count,
         "featured_count": featured_count,
         "trending_count": trending_count,
         "daily": sorted([{"date": k, "count": v} for k, v in daily.items()], key=lambda x: x["date"]),
@@ -127,6 +130,7 @@ def get_dashboard_data(catalog_path: Optional[str] = None) -> Dict[str, Any]:
         "overview": {
             "total_videos": stats["total_videos"],
             "total_views": stats["total_views"],
+            "completion_count": stats["completion_count"],
             "featured_count": stats["featured_count"],
             "trending_count": stats["trending_count"],
         },

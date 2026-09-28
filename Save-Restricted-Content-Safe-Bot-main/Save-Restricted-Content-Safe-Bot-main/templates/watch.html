@@ -66,10 +66,15 @@
     <!-- Video Player -->
     <div class="mb-8">
         <div class="video-player-wrapper">
-            <video id="main-player" controls autoplay playsinline class="w-full">
-                <source src="{{ video.stream_url }}" type="video/mp4" />
+            {% if video.media_type == 'pdf' %}
+            <iframe src="{{ video.stream_url }}" title="{{ video.title }}" class="w-full h-[70vh] bg-white" loading="lazy"></iframe>
+            {% else %}
+            <video id="main-player" controls autoplay playsinline poster="{{ video.thumbnail_url }}" class="w-full">
+                <source src="{{ video.stream_url }}" />
+                {% if video.subtitles %}<track kind="subtitles" src="/captions/{{ video.token }}.vtt" srclang="en" label="Subtitles" default>{% endif %}
                 Your browser does not support the video tag.
             </video>
+            {% endif %}
         </div>
 
         <!-- Watch Progress -->
@@ -99,7 +104,13 @@
                     </span>
                 </div>
 
-                <p class="text-slate-300 leading-relaxed mb-6">{{ video.description or 'Study video from the Safe Repo media archive.' }}</p>
+                <p class="text-slate-300 leading-relaxed mb-6">{{ video.description or 'Study media from the Safe Repo archive.' }}</p>
+                {% if video.transcript %}
+                <details class="mb-6 rounded-xl border border-white/10 p-4">
+                    <summary class="cursor-pointer font-medium text-white">Transcript</summary>
+                    <pre class="mt-4 whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-slate-300">{{ video.transcript }}</pre>
+                </details>
+                {% endif %}
 
                 <!-- Action Buttons -->
                 <div class="flex flex-wrap gap-3">
@@ -219,19 +230,61 @@
 
 {% block extra_scripts %}
 <script>
-    // Watch progress tracking
+    // Keep local resume available to guests and sync signed-in viewers.
     const player = document.getElementById('main-player');
     const progressBar = document.getElementById('watch-progress');
     const progressFill = document.getElementById('watch-progress-fill');
     const progressText = document.getElementById('watch-progress-text');
+    const mediaToken = {{ video.token|tojson }};
+    const resumeKey = `studyhub-progress:${mediaToken}`;
+    let authenticated = false;
+    let serverProgress = 0;
+    let lastRemoteSave = 0;
+
+    async function saveProgress(progress) {
+        if (!player || !Number.isFinite(player.duration)) return;
+        localStorage.setItem(resumeKey, String(player.currentTime));
+        if (!authenticated || Date.now() - lastRemoteSave < 15000 && progress < 0.95) return;
+        lastRemoteSave = Date.now();
+        try {
+            await fetch(`/api/videos/${encodeURIComponent(mediaToken)}/progress`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ progress }),
+            });
+        } catch (_) {}
+    }
 
     if (player && progressFill && progressText) {
+        fetch('/api/videos/{{ video.token }}/view', { method: 'POST' }).catch(() => {});
+        fetch('/api/auth/status').then(response => response.json()).then(async status => {
+            authenticated = Boolean(status.authenticated);
+            if (authenticated) {
+                const response = await fetch(`/api/videos/${encodeURIComponent(mediaToken)}/progress`);
+                const result = await response.json();
+                serverProgress = Number(result.progress) || 0;
+                if (player.duration) player.currentTime = Math.max(player.currentTime, serverProgress * player.duration);
+            }
+        }).catch(() => {});
+
+        player.addEventListener('loadedmetadata', () => {
+            const localTime = Number(localStorage.getItem(resumeKey)) || 0;
+            const savedTime = Math.max(localTime, serverProgress * player.duration);
+            if (savedTime > 3 && savedTime < player.duration - 5) player.currentTime = savedTime;
+        }, { once: true });
+
         player.addEventListener('timeupdate', () => {
             if (player.duration) {
                 const percent = (player.currentTime / player.duration) * 100;
                 progressFill.style.width = percent + '%';
                 progressText.textContent = Math.round(percent) + '%';
+                if (Math.floor(player.currentTime) % 5 === 0) saveProgress(player.currentTime / player.duration);
             }
+        });
+
+        player.addEventListener('ended', () => {
+            saveProgress(1);
+            localStorage.removeItem(resumeKey);
         });
 
         if (progressBar) {

@@ -120,6 +120,8 @@
     <div id="catalog-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {% for entry in filtered %}
         <div class="catalog-card glass-card rounded-2xl p-6" data-token="{{ entry.token }}">
+            {% set thumbnail_url = entry.thumbnail_url or ('/thumbnail/' ~ entry.token if entry.token else '') %}
+            {% if thumbnail_url %}<img src="{{ thumbnail_url }}" alt="{{ entry.title or 'Media' }} thumbnail" class="w-full aspect-video object-cover rounded-xl mb-4" onerror="this.remove()">{% endif %}
             <div class="flex items-start justify-between mb-4">
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-electric to-purple flex items-center justify-center text-white font-bold text-sm">

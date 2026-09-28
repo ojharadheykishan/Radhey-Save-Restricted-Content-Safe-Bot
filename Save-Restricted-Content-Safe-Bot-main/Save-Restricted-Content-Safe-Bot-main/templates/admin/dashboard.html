@@ -5,7 +5,7 @@
 {% block extra_head %}
 <style>
     .admin-sidebar {
-        background: rgba(15, 23, 42, 0.95);
+        background: linear-gradient(180deg, rgba(13, 24, 29, 0.98), rgba(17, 31, 36, 0.97));
         backdrop-filter: blur(20px);
         border-right: 1px solid rgba(255,255,255,0.05);
     }
@@ -19,7 +19,13 @@
     }
     .admin-stat-card {
         transition: all 0.3s ease;
+        animation: dashboardRise 0.45s ease both;
     }
+    .admin-stat-card:nth-child(2) { animation-delay: 50ms; }
+    .admin-stat-card:nth-child(3) { animation-delay: 100ms; }
+    .admin-stat-card:nth-child(4) { animation-delay: 150ms; }
+    .admin-stat-card:nth-child(5) { animation-delay: 200ms; }
+    .admin-stat-card:nth-child(6) { animation-delay: 250ms; }
     .admin-stat-card:hover {
         transform: translateY(-2px);
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
@@ -30,12 +36,23 @@
     .data-table tr:hover {
         background: rgba(255,255,255,0.02);
     }
+    @keyframes dashboardRise {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .media-thumb-button img { transition: transform 180ms ease, filter 180ms ease; }
+    .media-thumb-button:hover img { transform: scale(1.08); filter: saturate(1.15); }
+    @media (prefers-reduced-motion: reduce) {
+        .admin-stat-card, .media-thumb-button img { animation: none; transition: none; }
+    }
     .bulk-action-btn {
         transition: all 0.3s ease;
     }
     .bulk-action-btn:hover {
         transform: translateY(-1px);
     }
+    .admin-mobile-nav { scrollbar-width: none; }
+    .admin-mobile-nav::-webkit-scrollbar { display: none; }
 </style>
 {% endblock %}
 
@@ -53,11 +70,11 @@
         </div>
 
         <nav class="flex-1 p-4 space-y-1">
-            <a href="/admin/dashboard" class="sidebar-link active flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300">
+            <a href="/admin/dashboard#dashboard" class="sidebar-link active flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300">
                 <i class="fas fa-chart-pie w-5"></i>
                 Dashboard
             </a>
-            <a href="/admin/dashboard" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300">
+            <a href="/admin/dashboard#media-list" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300">
                 <i class="fas fa-video w-5"></i>
                 Videos
             </a>
@@ -85,12 +102,18 @@
 
     <!-- Main Content -->
     <div class="flex-1 md:ml-64">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div id="dashboard" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <nav class="admin-mobile-nav mb-5 flex gap-2 overflow-x-auto md:hidden" aria-label="Admin navigation">
+                <a href="#dashboard" class="shrink-0 rounded-full bg-teal-400/10 px-4 py-2 text-sm text-teal-200">Overview</a>
+                <a href="#media-list" class="shrink-0 rounded-full bg-rose-400/10 px-4 py-2 text-sm text-rose-200">Media</a>
+                <a href="/stats" class="shrink-0 rounded-full bg-amber-400/10 px-4 py-2 text-sm text-amber-200">Stats</a>
+                <a href="/admin/logout" class="shrink-0 rounded-full bg-white/10 px-4 py-2 text-sm text-slate-200">Logout</a>
+            </nav>
             <!-- Header -->
             <div class="flex items-center justify-between mb-8">
                 <div>
                     <h1 class="font-display text-3xl font-bold text-white mb-1">Dashboard</h1>
-                    <p class="text-slate-400">Video Management & Organization</p>
+                    <p class="text-slate-400">Media management · {{ admin_role|capitalize }}</p>
                 </div>
                 <a href="/" class="px-5 py-2.5 rounded-full glass-card text-slate-300 hover:text-white hover:border-electric/30 transition-all duration-300 flex items-center gap-2">
                     <i class="fas fa-external-link-alt"></i>
@@ -99,16 +122,16 @@
             </div>
 
             <!-- Stats Cards -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
                 <div class="admin-stat-card glass-card rounded-2xl p-6">
                     <div class="flex items-center justify-between mb-4">
                         <div class="w-12 h-12 rounded-xl bg-electric/20 flex items-center justify-center">
                             <i class="fas fa-video text-electric text-xl"></i>
                         </div>
-                        <span class="text-xs text-green-400 font-medium">+12%</span>
+                        <span class="text-xs text-slate-400 font-medium">Library</span>
                     </div>
                     <div class="text-3xl font-bold text-white mb-1">{{ entries|length }}</div>
-                    <div class="text-slate-400 text-sm">Total Videos</div>
+                    <div class="text-slate-400 text-sm">Total Media</div>
                 </div>
 
                 <div class="admin-stat-card glass-card rounded-2xl p-6">
@@ -143,6 +166,24 @@
                     <div class="text-3xl font-bold text-white mb-1">{{ folders|length }}</div>
                     <div class="text-slate-400 text-sm">Total Folders</div>
                 </div>
+
+                <div class="admin-stat-card glass-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="w-12 h-12 rounded-xl bg-green-500/20 flex items-center justify-center"><i class="fas fa-database text-green-400 text-xl"></i></div>
+                        <span class="text-xs text-slate-400">{{ cache_stats.retention_hours }}h retention</span>
+                    </div>
+                    <div class="text-2xl font-bold text-white mb-1">{{ '%.2f'|format(cache_stats.used_bytes / 1073741824) }} GB</div>
+                    <div class="text-slate-400 text-sm">Storage{% if cache_stats.quota_bytes %} / {{ '%.2f'|format(cache_stats.quota_bytes / 1073741824) }} GB{% endif %}</div>
+                </div>
+
+                <div class="admin-stat-card glass-card rounded-2xl p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="w-12 h-12 rounded-xl bg-pink/20 flex items-center justify-center"><i class="fas fa-graduation-cap text-pink text-xl"></i></div>
+                        <span class="text-xs text-pink">Learning</span>
+                    </div>
+                    <div class="text-3xl font-bold text-white mb-1">{{ completion_count }}</div>
+                    <div class="text-slate-400 text-sm">Completed views</div>
+                </div>
             </div>
 
             <!-- Charts -->
@@ -163,63 +204,108 @@
 
             <!-- Bulk Actions -->
             {% if entries %}
-            <div class="glass-card rounded-2xl p-4 mb-6 flex items-center justify-between">
-                <div class="flex items-center gap-4">
+            {% if admin_role != 'viewer' %}
+            <div class="glass-card rounded-2xl p-4 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div class="flex flex-wrap items-center gap-4">
                     <label class="flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" id="admin-select-all" class="checkbox-custom" onchange="toggleAdminSelectAll(this.checked)">
-                        <span class="text-slate-300 text-sm">Select All</span>
+                        <span class="text-slate-300 text-sm">Select all media</span>
                     </label>
                     <span class="text-slate-500 text-sm" id="admin-selected-count">0 selected</span>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex flex-wrap gap-2">
                     <button onclick="bulkAction('featured')" class="bulk-action-btn px-4 py-2 rounded-lg bg-yellow-500/10 text-yellow-400 text-sm font-medium hover:bg-yellow-500/20 transition-colors">
                         <i class="fas fa-star mr-1"></i>Toggle Featured
                     </button>
                     <button onclick="bulkAction('trending')" class="bulk-action-btn px-4 py-2 rounded-lg bg-red-500/10 text-red-400 text-sm font-medium hover:bg-red-500/20 transition-colors">
                         <i class="fas fa-fire mr-1"></i>Toggle Trending
                     </button>
-                    <button onclick="bulkAction('delete')" class="bulk-action-btn px-4 py-2 rounded-lg bg-red-500/10 text-red-400 text-sm font-medium hover:bg-red-500/20 transition-colors">
-                        <i class="fas fa-trash mr-1"></i>Delete Selected
+                    <button onclick="bulkAction('folder')" class="bulk-action-btn px-4 py-2 rounded-lg bg-cyan/10 text-cyan text-sm font-medium hover:bg-cyan/20 transition-colors">
+                        <i class="fas fa-folder mr-1"></i>Set Folder
                     </button>
+                    <button onclick="bulkAction('playlist')" class="bulk-action-btn px-4 py-2 rounded-lg bg-electric/10 text-electric text-sm font-medium hover:bg-electric/20 transition-colors">
+                        <i class="fas fa-list mr-1"></i>Set Playlist
+                    </button>
+                    <button onclick="bulkAction('tags')" class="bulk-action-btn px-4 py-2 rounded-lg bg-purple/10 text-purple text-sm font-medium hover:bg-purple/20 transition-colors">
+                        <i class="fas fa-tags mr-1"></i>Assign Tags
+                    </button>
+                    {% if admin_role == 'owner' %}
+                    <button onclick="bulkAction('approve')" class="bulk-action-btn px-4 py-2 rounded-lg bg-green-500/10 text-green-400 text-sm font-medium hover:bg-green-500/20 transition-colors"><i class="fas fa-check mr-1"></i>Approve</button>
+                    <button onclick="bulkAction('unapprove')" class="bulk-action-btn px-4 py-2 rounded-lg bg-orange-500/10 text-orange-400 text-sm font-medium hover:bg-orange-500/20 transition-colors"><i class="fas fa-eye-slash mr-1"></i>Unpublish</button>
+                    <button onclick="bulkAction('delete')" class="bulk-action-btn px-4 py-2 rounded-lg bg-red-500/10 text-red-400 text-sm font-medium hover:bg-red-500/20 transition-colors"><i class="fas fa-trash mr-1"></i>Delete</button>
+                    {% endif %}
                 </div>
+            </div>
+            {% endif %}
+
+            <div class="glass-card rounded-2xl p-4 mb-4 flex flex-wrap items-center gap-3" id="media-library-controls">
+                <label class="relative min-w-[220px] flex-1">
+                    <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                    <input id="media-search" type="search" placeholder="Search title or subject" class="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-10 pr-4 text-white placeholder-slate-400 focus:border-cyan focus:outline-none">
+                </label>
+                <select id="media-type-filter" aria-label="Filter by media type" class="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white">
+                    <option value="">All types</option><option value="video">Video</option><option value="pdf">PDF</option>
+                </select>
+                <select id="media-status-filter" aria-label="Filter by media status" class="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white">
+                    <option value="">All statuses</option><option value="pending">Pending approval</option><option value="published">Published</option><option value="featured">Featured</option><option value="trending">Trending</option>
+                </select>
+                <select id="media-folder-filter" aria-label="Filter by folder" class="max-w-48 rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white">
+                    <option value="">All folders</option>{% for folder, count in folders|dictsort %}<option value="{{ folder }}">{{ folder }} ({{ count }})</option>{% endfor %}
+                </select>
+                <select id="media-sort" aria-label="Sort media" class="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white">
+                    <option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="title">Title A-Z</option>
+                </select>
+                <button id="export-media" type="button" class="rounded-xl bg-amber-400/10 px-4 py-3 text-sm font-medium text-amber-200 hover:bg-amber-400/20"><i class="fas fa-download mr-2"></i>Export CSV</button>
+                <span id="media-result-count" class="text-sm text-slate-400">{{ entries|length }} items</span>
             </div>
 
             <!-- Data Table -->
-            <div class="glass-card rounded-2xl overflow-hidden">
+            <div id="media-list" class="glass-card rounded-2xl overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="data-table w-full">
                         <thead>
                             <tr class="border-b border-white/5">
-                                <th class="text-left p-4 text-slate-400 text-sm font-medium">
-                                    <input type="checkbox" class="checkbox-custom">
-                                </th>
+                                {% if admin_role != 'viewer' %}<th class="text-left p-4 text-slate-400 text-sm font-medium">
+                                    <input type="checkbox" id="admin-table-select-all" class="checkbox-custom" onchange="toggleAdminSelectAll(this.checked)">
+                                </th>{% endif %}
                                 <th class="text-left p-4 text-slate-400 text-sm font-medium">Title</th>
                                 <th class="text-left p-4 text-slate-400 text-sm font-medium">Subject</th>
                                 <th class="text-left p-4 text-slate-400 text-sm font-medium">Folder</th>
                                 <th class="text-left p-4 text-slate-400 text-sm font-medium">Status</th>
+                                <th class="text-left p-4 text-slate-400 text-sm font-medium">Links</th>
                                 <th class="text-left p-4 text-slate-400 text-sm font-medium">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for entry in entries %}
-                            <tr class="border-b border-white/5 admin-video-row" data-token="{{ entry.token }}">
-                                <td class="p-4">
+                            <tr class="border-b border-white/5 admin-video-row" data-token="{{ entry.token }}" data-title="{{ entry.title|default('', true)|lower }}" data-subject="{{ entry.subject|default('', true)|lower }}" data-folder="{{ entry.folder|default('General', true) }}" data-type="{{ entry.media_type|default('video', true)|lower }}" data-status="{% if not entry.approved %}pending{% else %}published{% endif %}" data-featured="{{ 'true' if entry.featured else 'false' }}" data-trending="{{ 'true' if entry.trending else 'false' }}" data-date="{{ entry.timestamp|default('', true) }}">
+                                {% if admin_role != 'viewer' %}<td class="p-4">
                                     <input type="checkbox" class="checkbox-custom admin-video-checkbox" data-token="{{ entry.token }}">
-                                </td>
+                                </td>{% endif %}
                                 <td class="p-4">
                                     <div class="flex items-center gap-3">
-                                        <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-electric to-purple flex items-center justify-center text-white text-sm font-bold">
-                                            {{ (entry.subject or 'G')[:1].upper() }}
+                                        {% set thumbnail_url = entry.thumbnail_url or ('/thumbnail/' ~ entry.token if entry.token else '') %}
+                                        <div class="relative w-10 h-10 flex-shrink-0">
+                                            <button type="button" class="media-thumb-button absolute inset-0 h-full w-full overflow-hidden rounded-lg bg-white/5" aria-label="Preview thumbnail for {{ entry.title }}" onclick="openMediaPreview(this)" data-title="{{ entry.title }}" data-thumbnail="{{ thumbnail_url }}" data-player="{{ entry.player_url }}" data-stream="{{ entry.stream_url }}">
+                                                {% if thumbnail_url %}<img src="{{ thumbnail_url }}" alt="" class="absolute inset-0 h-full w-full object-cover" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden')">{% endif %}
+                                                <span class="{% if thumbnail_url %}hidden {% endif %}absolute inset-0 flex items-center justify-center bg-gradient-to-br from-teal-500/30 to-rose-500/30 text-sm font-bold text-white">{{ (entry.subject or 'G')[:1].upper() }}</span>
+                                            </button>
                                         </div>
                                         <div>
                                             <p class="text-white text-sm font-medium">{{ entry.title }}</p>
-                                            <p class="text-slate-500 text-xs">{{ entry.date }}</p>
+                                            <p class="text-slate-500 text-xs">{{ entry.date }} · {{ entry.media_type or 'video' }}</p>
                                         </div>
                                     </div>
                                 </td>
                                 <td class="p-4 text-slate-300 text-sm">{{ entry.subject }}</td>
                                 <td class="p-4 text-slate-300 text-sm">
                                     {{ entry.folder or 'General' }}{% if entry.subfolder %}<span class="text-slate-500"> / {{ entry.subfolder }}</span>{% endif %}
+                                </td>
+                                <td class="p-4">
+                                    <div class="flex flex-wrap gap-2">
+                                        <a href="{{ entry.player_url }}" target="_blank" rel="noopener" class="rounded-lg bg-teal-400/10 px-3 py-2 text-xs font-medium text-teal-300 hover:bg-teal-400/20">Open player</a>
+                                        <button type="button" class="rounded-lg bg-rose-400/10 px-3 py-2 text-xs font-medium text-rose-300 hover:bg-rose-400/20" data-url="{{ entry.stream_url }}" onclick="copyAdminLink(this.dataset.url)">Copy stream</button>
+                                    </div>
                                 </td>
                                 <td class="p-4">
                                     <div class="flex flex-wrap gap-1">
@@ -229,6 +315,9 @@
                                         {% if entry.trending %}
                                         <span class="px-2 py-1 rounded-full bg-red-500/10 text-red-400 text-xs">Trending</span>
                                         {% endif %}
+                                        {% if not entry.approved %}
+                                        <span class="px-2 py-1 rounded-full bg-orange-500/10 text-orange-300 text-xs">Pending approval</span>
+                                        {% endif %}
                                     </div>
                                 </td>
                                 <td class="p-4">
@@ -236,7 +325,7 @@
                                         <a href="{{ entry.player_url }}" target="_blank" class="w-8 h-8 rounded-lg bg-electric/10 text-electric flex items-center justify-center hover:bg-electric/20 transition-colors" title="Preview">
                                             <i class="fas fa-external-link-alt text-xs"></i>
                                         </a>
-                                        <a href="/admin/edit/{{ entry.token }}" class="w-8 h-8 rounded-lg bg-cyan/10 text-cyan flex items-center justify-center hover:bg-cyan/20 transition-colors" title="Edit video and folders">
+                                        {% if admin_role != 'viewer' %}<a href="/admin/edit/{{ entry.token }}" class="w-8 h-8 rounded-lg bg-cyan/10 text-cyan flex items-center justify-center hover:bg-cyan/20 transition-colors" title="Edit media and folders">
                                             <i class="fas fa-pen text-xs"></i>
                                         </a>
                                         <a href="/admin/toggle-featured/{{ entry.token }}" class="w-8 h-8 rounded-lg bg-yellow-500/10 text-yellow-400 flex items-center justify-center hover:bg-yellow-500/20 transition-colors" title="Toggle Featured">
@@ -245,9 +334,10 @@
                                         <a href="/admin/toggle-trending/{{ entry.token }}" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center hover:bg-red-500/20 transition-colors" title="Toggle Trending">
                                             <i class="fas fa-fire text-xs"></i>
                                         </a>
-                                        <a href="/admin/delete/{{ entry.token }}" onclick="return confirm('Delete this video?')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center hover:bg-red-500/20 transition-colors" title="Delete">
+                                        {% endif %}
+                                        {% if admin_role == 'owner' %}<a href="/admin/delete/{{ entry.token }}" onclick="return confirm('Delete this media?')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center hover:bg-red-500/20 transition-colors" title="Delete">
                                             <i class="fas fa-trash text-xs"></i>
-                                        </a>
+                                        </a>{% endif %}
                                     </div>
                                 </td>
                             </tr>
@@ -265,6 +355,23 @@
                 <p class="text-slate-400">Forward videos to the bot to start building your library.</p>
             </div>
             {% endif %}
+
+            <div id="media-preview-modal" class="fixed inset-0 z-[70] hidden items-center justify-center bg-black/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="media-preview-title" onclick="if (event.target === this) closeMediaPreview()">
+                <div class="w-full max-w-3xl overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-2xl">
+                    <div class="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
+                        <h2 id="media-preview-title" class="truncate font-semibold text-white"></h2>
+                        <button type="button" onclick="closeMediaPreview()" class="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white" aria-label="Close preview"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="flex min-h-48 items-center justify-center bg-black">
+                        <img id="media-preview-image" src="" alt="Media thumbnail preview" class="max-h-[65vh] w-full object-contain">
+                        <p id="media-preview-empty" class="hidden p-8 text-center text-slate-400">No thumbnail is available for this item.</p>
+                    </div>
+                    <div class="flex justify-end gap-2 p-4">
+                        <a id="media-preview-stream" href="" target="_blank" rel="noopener" class="rounded-lg bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/20">Open stream</a>
+                        <a id="media-preview-player" href="" target="_blank" rel="noopener" class="rounded-lg bg-teal-400/15 px-4 py-2 text-sm text-teal-200 hover:bg-teal-400/25">Open player</a>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -279,13 +386,12 @@
 
     function updateAdminSelection() {
         const selected = document.querySelectorAll('.admin-video-checkbox:checked');
-        adminSelectedCount.textContent = selected.length + ' selected';
+        if (adminSelectedCount) adminSelectedCount.textContent = selected.length + ' selected';
 
-        if (selected.length === adminCheckboxes.length && adminCheckboxes.length > 0) {
-            adminSelectAll.checked = true;
-        } else {
-            adminSelectAll.checked = false;
-        }
+        const allSelected = selected.length === adminCheckboxes.length && adminCheckboxes.length > 0;
+        if (adminSelectAll) adminSelectAll.checked = allSelected;
+        const tableSelectAll = document.getElementById('admin-table-select-all');
+        if (tableSelectAll) tableSelectAll.checked = allSelected;
 
         document.querySelectorAll('.admin-video-row').forEach(row => {
             const cb = row.querySelector('.admin-video-checkbox');
@@ -304,10 +410,102 @@
 
     adminCheckboxes.forEach(cb => cb.addEventListener('change', updateAdminSelection));
 
-    function bulkAction(action) {
+    const mediaSearch = document.getElementById('media-search');
+    const mediaTypeFilter = document.getElementById('media-type-filter');
+    const mediaStatusFilter = document.getElementById('media-status-filter');
+    const mediaFolderFilter = document.getElementById('media-folder-filter');
+    const mediaSort = document.getElementById('media-sort');
+    const mediaTableBody = document.querySelector('.data-table tbody');
+    const mediaResultCount = document.getElementById('media-result-count');
+
+    function filterAndSortMedia() {
+        if (!mediaTableBody) return;
+        const query = (mediaSearch.value || '').trim().toLowerCase();
+        const type = mediaTypeFilter.value;
+        const status = mediaStatusFilter.value;
+        const folder = mediaFolderFilter.value;
+        const rows = [...mediaTableBody.querySelectorAll('.admin-video-row')];
+        rows.sort((left, right) => {
+            if (mediaSort.value === 'title') return left.dataset.title.localeCompare(right.dataset.title);
+            const order = left.dataset.date.localeCompare(right.dataset.date);
+            return mediaSort.value === 'oldest' ? order : -order;
+        });
+        let visible = 0;
+        rows.forEach(row => {
+            const matches = (!query || `${row.dataset.title} ${row.dataset.subject}`.includes(query))
+                && (!type || row.dataset.type === type)
+                && (!folder || row.dataset.folder === folder)
+                && (!status || (status === 'pending' ? row.dataset.status === 'pending'
+                    : status === 'published' ? row.dataset.status === 'published'
+                    : row.dataset[status] === 'true'));
+            row.hidden = !matches;
+            if (matches) visible += 1;
+            mediaTableBody.appendChild(row);
+        });
+        if (mediaResultCount) mediaResultCount.textContent = `${visible} of ${rows.length} items`;
+    }
+
+    [mediaSearch, mediaTypeFilter, mediaStatusFilter, mediaFolderFilter, mediaSort].forEach(control => {
+        if (control) control.addEventListener(control === mediaSearch ? 'input' : 'change', filterAndSortMedia);
+    });
+
+    document.getElementById('export-media')?.addEventListener('click', () => {
+        const rows = [...document.querySelectorAll('.admin-video-row')].filter(row => !row.hidden);
+        const quote = value => `"${String(value || '').replaceAll('"', '""')}"`;
+        const data = [['Title', 'Subject', 'Folder', 'Type', 'Status', 'Player URL', 'Stream URL']];
+        rows.forEach(row => {
+            const preview = row.querySelector('.media-thumb-button');
+            data.push([row.dataset.title, row.dataset.subject, row.dataset.folder, row.dataset.type, row.dataset.status, preview?.dataset.player, preview?.dataset.stream]);
+        });
+        const blob = new Blob(['\ufeff' + data.map(row => row.map(quote).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'studyhub-media.csv';
+        link.click();
+        URL.revokeObjectURL(link.href);
+    });
+
+    function openMediaPreview(button) {
+        const modal = document.getElementById('media-preview-modal');
+        const image = document.getElementById('media-preview-image');
+        const emptyState = document.getElementById('media-preview-empty');
+        document.getElementById('media-preview-title').textContent = button.dataset.title || 'Media preview';
+        document.getElementById('media-preview-player').href = button.dataset.player || '#';
+        document.getElementById('media-preview-stream').href = button.dataset.stream || '#';
+        image.onerror = () => { image.classList.add('hidden'); emptyState.classList.remove('hidden'); };
+        image.onload = () => { image.classList.remove('hidden'); emptyState.classList.add('hidden'); };
+        image.src = button.dataset.thumbnail || '';
+        if (!button.dataset.thumbnail) { image.classList.add('hidden'); emptyState.classList.remove('hidden'); }
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        document.body.classList.add('overflow-hidden');
+        modal.querySelector('button[aria-label="Close preview"]').focus();
+    }
+
+    function closeMediaPreview() {
+        const modal = document.getElementById('media-preview-modal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        document.body.classList.remove('overflow-hidden');
+    }
+
+    async function copyAdminLink(url) {
+        try {
+            await navigator.clipboard.writeText(url);
+            showToast('Stream link copied', 'success');
+        } catch (_) {
+            showToast('Could not copy the link', 'error');
+        }
+    }
+
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') closeMediaPreview();
+    });
+
+    async function bulkAction(action) {
         const selected = document.querySelectorAll('.admin-video-checkbox:checked');
         if (selected.length === 0) {
-            showToast('Please select videos first', 'error');
+            showToast('Please select media first', 'error');
             return;
         }
 
@@ -316,11 +514,35 @@
         }
 
         const tokens = [...selected].map(cb => cb.dataset.token);
-        showToast(`Processing ${action} for ${tokens.length} videos...`, 'info');
+        let endpoint = '/api/admin/videos/bulk';
+        let payload = { action, tokens };
+        if (action === 'folder' || action === 'playlist') {
+            const value = prompt(action === 'folder' ? 'Folder name' : 'Playlist name');
+            if (value === null || !value.trim()) return;
+            payload.value = value.trim();
+        }
+        if (action === 'tags') {
+            const tags = prompt('Enter comma-separated tags');
+            if (tags === null || !tags.trim()) return;
+            endpoint = '/api/admin/videos/batch-tags';
+            payload = { tokens, tags: tags.split(',').map(tag => tag.trim()).filter(Boolean) };
+        }
+        showToast(`Processing ${action} for ${tokens.length} items...`, 'info');
 
-        setTimeout(() => {
-            showToast(`${action === 'delete' ? 'Deleted' : 'Updated'} ${tokens.length} videos`, 'success');
-        }, 1000);
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.error || 'Bulk action failed');
+            const updated = result.updated ?? tokens.length;
+            showToast(`${action === 'delete' ? 'Deleted' : 'Updated'} ${updated} items`, 'success');
+            setTimeout(() => window.location.reload(), 700);
+        } catch (error) {
+            showToast(error.message || 'Bulk action failed', 'error');
+        }
     }
 
     // Admin Charts
@@ -329,14 +551,15 @@
         new Chart(adminChart1Ctx, {
             type: 'doughnut',
             data: {
-                labels: ['Featured', 'Trending', 'Regular'],
+                labels: ['Featured only', 'Trending only', 'Both', 'Regular'],
                 datasets: [{
                     data: [
-                        {{ entries|selectattr('featured')|list|length }},
-                        {{ entries|selectattr('trending')|list|length }},
-                        {{ entries|length - entries|selectattr('featured')|list|length - entries|selectattr('trending')|list|length }}
+                        {{ entries|selectattr('featured')|rejectattr('trending')|list|length }},
+                        {{ entries|selectattr('trending')|rejectattr('featured')|list|length }},
+                        {{ entries|selectattr('featured')|selectattr('trending')|list|length }},
+                        {{ entries|rejectattr('featured')|rejectattr('trending')|list|length }}
                     ],
-                    backgroundColor: ['#fbbf24', '#ef4444', '#3b82f6'],
+                    backgroundColor: ['#fbbf24', '#ef4444', '#a855f7', '#3b82f6'],
                     borderColor: 'rgba(15, 23, 42, 0.8)',
                     borderWidth: 2,
                 }]

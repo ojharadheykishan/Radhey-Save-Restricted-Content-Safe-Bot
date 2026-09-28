@@ -23,8 +23,10 @@ from safe_repo.web.tags import (
 )
 from safe_repo.web.batch import create_batch_job, get_job_status, get_job_zip_path, cleanup_expired
 from safe_repo.web.stats import compute_stats, get_dashboard_data
-from safe_repo.core.media_links import read_stream_entries, get_stream_entry
+from safe_repo.core.media_links import get_catalog_path, read_stream_entries, get_stream_entry
+from safe_repo.web.users import add_watch_history, get_watch_history, record_video_completion
 from safe_repo.web.study import load_catalog_entries
+from safe_repo.web.notifications import save_push_subscription, remove_push_subscription
 
 MONGO_DIR = Path(__file__).resolve().parent.parent / "core" / "mongo"
 WEB_AUTH_PATH = MONGO_DIR / "web_auth.json"
@@ -135,8 +137,46 @@ def api_auth_logout():
 def api_auth_status():
     user_id = _get_current_user_id()
     if not user_id:
+        from safe_repo.web.admin import is_admin
+        if is_admin():
+            return jsonify({"authenticated": True, "user_id": f"admin_{session.get('admin_role', 'owner')}", "username": "admin"})
         return jsonify({"authenticated": False})
     return jsonify({"authenticated": True, "user_id": user_id, "username": session.get("username")})
+
+
+def api_push_config():
+    public_key = os.environ.get("VAPID_PUBLIC_KEY", "").strip()
+    private_key = os.environ.get("VAPID_PRIVATE_KEY", "").strip()
+    claims_email = os.environ.get("VAPID_CLAIMS_EMAIL", "").strip()
+    return jsonify({"enabled": bool(public_key and private_key and claims_email), "public_key": public_key if public_key and private_key and claims_email else ""})
+
+
+def api_push_subscribe():
+    user_id = _notification_user_id()
+    data = request.get_json(silent=True) or {}
+    if not save_push_subscription(user_id, data.get("subscription")):
+        return jsonify({"success": False, "error": "Invalid browser subscription"}), 400
+    return jsonify({"success": True})
+
+
+def api_push_unsubscribe():
+    user_id = _notification_user_id()
+    data = request.get_json(silent=True) or {}
+    endpoint = str(data.get("endpoint") or "")
+    if not endpoint:
+        return jsonify({"success": False, "error": "endpoint is required"}), 400
+    remove_push_subscription(user_id, endpoint)
+    return jsonify({"success": True})
+
+
+def _notification_user_id():
+    user_id = _get_current_user_id()
+    if user_id:
+        return user_id
+    from safe_repo.web.admin import is_admin
+    if is_admin():
+        return f"admin_{session.get('admin_role', 'owner')}"
+    abort(401)
 
 
 # ============= User Endpoints =============
@@ -199,12 +239,12 @@ def api_video_view(token: str):
     entries = read_stream_entries()
     updated = None
     for entry in entries:
-        if str(entry.get("token")) == str(token):
+        if str(entry.get("token")) == str(token) and entry.get("approved", True):
             entry["views"] = int(entry.get("views") or 0) + 1
             updated = entry
             break
     if updated:
-        catalog_path = Path(__file__).resolve().parent.parent / "core" / "mongo" / "stream_catalog.json"
+        catalog_path = Path(get_catalog_path())
         catalog_path.parent.mkdir(parents=True, exist_ok=True)
         catalog_path.write_text(json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -221,6 +261,38 @@ def api_video_view(token: str):
         _write_prefs(prefs)
 
     return jsonify({"success": True, "views": int(updated.get("views") or 0) if updated else 0})
+
+
+def api_video_progress(token: str):
+    entry = get_stream_entry(token)
+    if not entry or not entry.get("approved", True):
+        return jsonify({"success": False, "error": "Media not found"}), 404
+
+    user_id = _get_current_user_id()
+    if request.method == "GET":
+        history = get_watch_history(user_id) if user_id else []
+        progress = next((float(item.get("progress") or 0) for item in history if item.get("token") == token), 0.0)
+        return jsonify({"success": True, "progress": progress, "tracked": bool(user_id)})
+
+    data = request.get_json(silent=True) or {}
+    try:
+        progress = max(0.0, min(1.0, float(data.get("progress", 0))))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "progress must be a number"}), 400
+    if not user_id:
+        return jsonify({"success": True, "progress": progress, "tracked": False})
+
+    history = get_watch_history(user_id)
+    previous = next((float(item.get("progress") or 0) for item in history if item.get("token") == token), 0.0)
+    add_watch_history(user_id, token, progress)
+    if progress >= 0.95 and previous < 0.95 and record_video_completion(user_id, token):
+        entries = read_stream_entries()
+        for catalog_entry in entries:
+            if str(catalog_entry.get("token")) == str(token):
+                catalog_entry["completion_count"] = int(catalog_entry.get("completion_count") or 0) + 1
+                Path(get_catalog_path()).write_text(json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8")
+                break
+    return jsonify({"success": True, "progress": progress, "tracked": True})
 
 
 # ============= Stats Endpoints =============
@@ -370,8 +442,10 @@ def api_search_advanced():
     date_to = (request.args.get("date_to") or "").strip()
     featured = request.args.get("featured")
     trending = request.args.get("trending")
+    media_type = (request.args.get("media_type") or "").strip().lower()
+    playlist = (request.args.get("playlist") or "").strip().lower()
 
-    videos = load_catalog_entries()
+    videos = [video for video in load_catalog_entries() if video.get("approved", True)]
 
     token_pool = None
     if tag:
@@ -383,7 +457,7 @@ def api_search_advanced():
             continue
         if q:
             title = str(video.get("title", "") or "").lower()
-            description = str(video.get("description", "") or "").lower()
+            description = " ".join((str(video.get("description", "") or ""), str(video.get("pdf_text", "") or ""), str(video.get("transcript", "") or ""))).lower()
             subject_name = str(video.get("subject", "") or "").lower()
             if q not in title and q not in description and q not in subject_name:
                 continue
@@ -392,6 +466,10 @@ def api_search_advanced():
         if category and str(video.get("category", "")).lower() != category.lower():
             continue
         if folder and str(video.get("folder", "") or "General").lower() != folder.lower():
+            continue
+        if media_type and str(video.get("media_type", "video")).lower() != media_type:
+            continue
+        if playlist and str(video.get("playlist", "") or "").lower() != playlist:
             continue
         if date_from and str(video.get("date", "")) < date_from:
             continue
@@ -414,12 +492,16 @@ def register_api_routes(app):
     app.add_url_rule('/api/auth/login', 'api_auth_login', api_auth_login, methods=['POST'])
     app.add_url_rule('/api/auth/logout', 'api_auth_logout', api_auth_logout, methods=['POST'])
     app.add_url_rule('/api/auth/status', 'api_auth_status', api_auth_status, methods=['GET'])
+    app.add_url_rule('/api/push/config', 'api_push_config', api_push_config, methods=['GET'])
+    app.add_url_rule('/api/push/subscribe', 'api_push_subscribe', api_push_subscribe, methods=['POST'])
+    app.add_url_rule('/api/push/unsubscribe', 'api_push_unsubscribe', api_push_unsubscribe, methods=['POST'])
     app.add_url_rule('/api/user/favorites', 'api_user_favorites', api_user_favorites, methods=['GET'])
     app.add_url_rule('/api/user/favorites/<token>', 'api_user_favorites_toggle', api_user_favorites_toggle, methods=['POST'])
     app.add_url_rule('/api/user/bookmarks', 'api_user_bookmarks', api_user_bookmarks, methods=['GET'])
     app.add_url_rule('/api/user/bookmarks/<token>', 'api_user_bookmarks_toggle', api_user_bookmarks_toggle, methods=['POST'])
     app.add_url_rule('/api/user/history', 'api_user_history', api_user_history, methods=['GET'])
     app.add_url_rule('/api/videos/<token>/view', 'api_video_view', api_video_view, methods=['POST'])
+    app.add_url_rule('/api/videos/<token>/progress', 'api_video_progress', api_video_progress, methods=['GET', 'POST'])
     app.add_url_rule('/api/stats/overview', 'api_stats_overview', api_stats_overview, methods=['GET'])
     app.add_url_rule('/api/stats/user/<user_id>', 'api_stats_user', api_stats_user, methods=['GET'])
     app.add_url_rule('/api/tags', 'api_tags_list', api_tags_list, methods=['GET'])

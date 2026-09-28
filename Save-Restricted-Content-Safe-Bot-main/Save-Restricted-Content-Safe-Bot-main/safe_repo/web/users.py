@@ -202,6 +202,22 @@ def add_watch_history(user_id: str, token: str, progress: float = 0.0) -> bool:
     return True
 
 
+def record_video_completion(user_id: str, token: str) -> bool:
+    profile = get_profile(user_id)
+    if not profile:
+        return False
+    completed = profile.get("completed_media", [])
+    if token in completed:
+        return False
+    completed.append(token)
+    profile["completed_media"] = completed[-1000:]
+    profile["updated_at"] = datetime.utcnow().isoformat()
+    data = _load_profiles()
+    data["profiles"][user_id] = profile
+    _save_profiles(data)
+    return True
+
+
 def get_statistics(user_id: str) -> Dict[str, Any]:
     profile = get_profile(user_id)
     if not profile:

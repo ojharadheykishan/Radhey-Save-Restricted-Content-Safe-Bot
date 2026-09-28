@@ -4,9 +4,10 @@ import threading
 import mimetypes
 import requests
 import json
-from flask import Flask, send_file, abort, redirect, request, render_template, jsonify
-from safe_repo.core.media_links import get_stream_file, read_stream_entries, get_stream_entry
-from safe_repo.web.admin import admin_dashboard_view, admin_login_view, admin_logout_view, toggle_featured_view, toggle_trending_view, delete_entry_view, edit_entry_view
+import tempfile
+from flask import Flask, send_file, send_from_directory, abort, redirect, request, render_template, jsonify, Response
+from safe_repo.core.media_links import get_stream_file, get_stream_thumbnail, read_stream_entries, get_stream_entry, store_stream_thumbnail
+from safe_repo.web.admin import admin_dashboard_view, admin_login_view, admin_logout_view, toggle_featured_view, toggle_trending_view, delete_entry_view, edit_entry_view, bulk_action_view, require_admin, is_admin
 from safe_repo.web.api import register_api_routes
 from safe_repo.web import auth as auth_module, users as users_module
 from safe_repo.web.study import build_public_study_url, build_video_index, load_catalog_entries
@@ -38,7 +39,9 @@ def home():
     search_query = (request.args.get('q') or '').strip()
     folder_filter = (request.args.get('folder') or '').strip()
     subfolder_filter = (request.args.get('subfolder') or '').strip()
-    index = build_video_index(subject=subject_filter, date=date_filter, q=search_query, folder=folder_filter, subfolder=subfolder_filter)
+    playlist_filter = (request.args.get('playlist') or '').strip()
+    media_type_filter = (request.args.get('media_type') or '').strip()
+    index = build_video_index(subject=subject_filter, date=date_filter, q=search_query, folder=folder_filter, subfolder=subfolder_filter, playlist=playlist_filter, media_type=media_type_filter)
     videos = index.get("videos", [])
     featured = index.get("featured", [])
     latest = index.get("latest", [])
@@ -60,7 +63,9 @@ def study_home():
     search_query = (request.args.get('q') or '').strip()
     folder_filter = (request.args.get('folder') or '').strip()
     subfolder_filter = (request.args.get('subfolder') or '').strip()
-    index = build_video_index(subject=subject_filter, date=date_filter, q=search_query, folder=folder_filter, subfolder=subfolder_filter)
+    playlist_filter = (request.args.get('playlist') or '').strip()
+    media_type_filter = (request.args.get('media_type') or '').strip()
+    index = build_video_index(subject=subject_filter, date=date_filter, q=search_query, folder=folder_filter, subfolder=subfolder_filter, playlist=playlist_filter, media_type=media_type_filter)
     videos = index.get("videos", [])
     featured = index.get("featured", [])
     latest = index.get("latest", [])
@@ -69,9 +74,10 @@ def study_home():
     categories = index.get("categories", [])
     folders = index.get("folders", [])
     playlists = index.get("playlists", [])
+    folder_tree = index.get("folder_tree", [])
     filter_summary = index.get("filter_summary", {})
 
-    return render_template('study.html', videos=videos, featured=featured, latest=latest, trending=trending, subjects=subjects, categories=categories, folders=folders, playlists=playlists, filter_summary=filter_summary, request=request)
+    return render_template('study.html', videos=videos, featured=featured, latest=latest, trending=trending, subjects=subjects, categories=categories, folders=folders, folder_tree=folder_tree, playlists=playlists, filter_summary=filter_summary, request=request)
 
 
 @app.route('/go')
@@ -121,6 +127,37 @@ def admin_edit_entry(token):
     return edit_entry_view(token)
 
 
+@app.route('/admin/thumbnail/<token>', methods=['POST'])
+def admin_upload_thumbnail(token):
+    require_admin()
+    if not get_stream_entry(token):
+        abort(404)
+    upload = request.files.get("thumbnail")
+    if not upload or not upload.filename:
+        abort(400)
+    if request.content_length and request.content_length > 5 * 1024 * 1024:
+        abort(413)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".image", delete=False) as temporary_file:
+            temporary_path = temporary_file.name
+            upload.save(temporary_file)
+        if not store_stream_thumbnail(token, temporary_path):
+            abort(400)
+    finally:
+        if temporary_path:
+            try:
+                os.remove(temporary_path)
+            except OSError:
+                pass
+    return redirect(f"/admin/edit/{token}")
+
+
+@app.route('/api/admin/videos/bulk', methods=['POST'])
+def admin_bulk_action():
+    return bulk_action_view()
+
+
 @app.route('/auth/register', methods=['GET', 'POST'])
 def auth_register():
     return auth_module.register_view()
@@ -162,6 +199,8 @@ def study_watch_page(token):
 
     if not video:
         abort(404)
+    if not video.get("approved", True) and not is_admin():
+        abort(404)
 
     related_videos = []
     for entry in load_catalog_entries():
@@ -172,13 +211,21 @@ def study_watch_page(token):
     return render_template('watch.html', video=video, related_videos=related_videos)
 
 
+@app.route('/captions/<token>.vtt')
+def media_captions(token):
+    entry = get_stream_entry(token)
+    if not entry or (not entry.get("approved", True) and not is_admin()) or not str(entry.get("subtitles") or "").startswith("WEBVTT"):
+        abort(404)
+    return Response(entry["subtitles"], mimetype="text/vtt; charset=utf-8")
+
+
 # ============= API Endpoints for Real-Time Sync & Management =============
 
 @app.route('/api/videos/sync')
 def api_videos_sync():
     """API endpoint for real-time video synchronization from bot to website."""
     try:
-        entries = read_stream_entries()
+        entries = [entry for entry in read_stream_entries() if entry.get("approved", True)]
         return jsonify({
             "success": True,
             "videos": entries,
@@ -193,7 +240,7 @@ def api_videos_sync():
 def api_videos_folders():
     """API endpoint to get all unique folders."""
     try:
-        entries = read_stream_entries()
+        entries = [entry for entry in read_stream_entries() if entry.get("approved", True)]
         folders = {}
         for entry in entries:
             folder = entry.get('folder', 'General')
@@ -215,7 +262,7 @@ def api_videos_recent():
     """API endpoint to get recently added videos."""
     try:
         limit = int(request.args.get('limit', 10))
-        entries = read_stream_entries()
+        entries = [entry for entry in read_stream_entries() if entry.get("approved", True)]
         entries.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
         return jsonify({
             "success": True,
@@ -230,7 +277,7 @@ def api_videos_recent():
 def api_videos_featured():
     """API endpoint to get featured videos."""
     try:
-        entries = read_stream_entries()
+        entries = [entry for entry in read_stream_entries() if entry.get("approved", True)]
         featured = [e for e in entries if e.get('featured')]
         return jsonify({
             "success": True,
@@ -245,7 +292,7 @@ def api_videos_featured():
 def api_public_folders():
     """API endpoint to get public folder structure."""
     try:
-        entries = read_stream_entries()
+        entries = [entry for entry in read_stream_entries() if entry.get("approved", True)]
         folders = {}
         for entry in entries:
             folder = entry.get('folder', 'General')
@@ -275,20 +322,29 @@ def health_check():
     return "OK", 200
 
 
+@app.route('/service-worker.js')
+def service_worker():
+    response = send_from_directory(app.static_folder, "service-worker.js", mimetype="application/javascript")
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.route('/catalog')
 def catalog_page():
     """Show a browseable catalog of generated stream links."""
     subject_filter = (request.args.get('subject') or '').strip()
     date_filter = (request.args.get('date') or '').strip()
     search_query = (request.args.get('q') or '').strip().lower()
-    entries = read_stream_entries()
+    entries = [entry for entry in read_stream_entries() if entry.get("approved", True)]
 
     filtered = []
     for entry in entries:
         title = str(entry.get('title', '') or '').lower()
         subject = str(entry.get('subject', '') or '').lower()
         description = str(entry.get('description', '') or '').lower()
-        if search_query and search_query not in title and search_query not in subject and search_query not in description:
+        searchable_text = " ".join((description, str(entry.get("pdf_text", "") or ""), str(entry.get("transcript", "") or ""))).lower()
+        if search_query and search_query not in title and search_query not in subject and search_query not in searchable_text:
             continue
         if subject_filter and str(entry.get('subject', '')).lower() != subject_filter.lower():
             continue
@@ -399,12 +455,27 @@ def stream_media(token):
     entry = get_stream_file(token)
     if not entry:
         abort(404)
+    metadata = get_stream_entry(token)
+    if metadata and not metadata.get("approved", True) and not is_admin():
+        abort(404)
 
     path = entry["file_path"]
     response = build_stream_response(path, as_attachment=request.args.get("download") == "1")
     if response is None:
         abort(404)
     return response
+
+
+@app.route('/thumbnail/<token>')
+def stream_thumbnail(token):
+    """Serve a cached media preview image, generating one for older files."""
+    metadata = get_stream_entry(token)
+    if metadata and not metadata.get("approved", True) and not is_admin():
+        abort(404)
+    path = get_stream_thumbnail(token)
+    if not path:
+        abort(404)
+    return send_file(path, mimetype="image/jpeg", conditional=True, max_age=3600)
 
 
 def build_stream_response(path, as_attachment=False):
@@ -448,14 +519,18 @@ def player_page(token):
     entry = get_stream_file(token)
     if not entry:
         abort(404)
+    entry_meta = get_stream_entry(token)
+    if entry_meta and not entry_meta.get("approved", True) and not is_admin():
+        abort(404)
 
     stream_url = f"{request.url_root.rstrip('/')}/stream/{token}"
-    entry_meta = get_stream_entry(token)
     title = entry_meta.get('title') if entry_meta else 'Media Player'
     description = entry_meta.get('description') if entry_meta else ''
     subject = entry_meta.get('subject') if entry_meta else 'General'
     video = {
         'stream_url': stream_url,
+        'thumbnail_url': (entry_meta.get('thumbnail_url') if entry_meta else None) or f"/thumbnail/{token}",
+        'media_type': entry_meta.get('media_type', 'video') if entry_meta else 'video',
         'title': title,
         'description': description,
         'subject': subject,
@@ -532,6 +607,9 @@ def start_bot_process():
             pass
 
 
+register_api_routes(app)
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
 
@@ -554,5 +632,4 @@ if __name__ == "__main__":
 
     # Always start Flask app to provide health check endpoint
     print(f"Starting Flask app on port {port}")
-    register_api_routes(app)
     app.run(host='0.0.0.0', port=port)

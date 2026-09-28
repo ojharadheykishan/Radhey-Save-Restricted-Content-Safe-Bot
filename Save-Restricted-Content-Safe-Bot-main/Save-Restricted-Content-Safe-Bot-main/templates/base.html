@@ -14,8 +14,8 @@
             theme: {
                 extend: {
                     fontFamily: {
-                        sans: ['Inter', 'sans-serif'],
-                        display: ['Poppins', 'sans-serif'],
+                        sans: ['Manrope', 'sans-serif'],
+                        display: ['Space Grotesk', 'sans-serif'],
                     },
                     colors: {
                         deep: '#0f172a',
@@ -23,6 +23,8 @@
                         purple: '#8b5cf6',
                         cyan: '#06b6d4',
                         pink: '#ec4899',
+                        coral: '#fb8d72',
+                        lime: '#d6ef70',
                     },
                     animation: {
                         'fade-in': 'fadeIn 0.6s ease-out forwards',
@@ -69,7 +71,7 @@
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -85,12 +87,7 @@
 <body class="font-sans antialiased bg-deep text-slate-100 min-h-screen transition-colors duration-500" data-theme="dark">
 
     <!-- Animated Background -->
-    <div class="fixed inset-0 -z-10 overflow-hidden">
-        <div class="absolute inset-0 bg-gradient-to-br from-deep via-slate-900 to-deep"></div>
-        <div class="absolute top-0 left-1/4 w-96 h-96 bg-electric/20 rounded-full blur-3xl animate-float"></div>
-        <div class="absolute bottom-0 right-1/4 w-96 h-96 bg-purple/20 rounded-full blur-3xl animate-float" style="animation-delay: 1s;"></div>
-        <div class="absolute top-1/2 left-1/2 w-64 h-64 bg-cyan/10 rounded-full blur-3xl animate-float" style="animation-delay: 2s;"></div>
-    </div>
+    <div class="site-atmosphere fixed inset-0 -z-10" aria-hidden="true"></div>
 
     <!-- Particle Canvas -->
     <canvas id="particle-canvas" class="fixed inset-0 pointer-events-none z-0 opacity-40"></canvas>
@@ -138,6 +135,9 @@
                 </div>
 
                 <div class="flex items-center gap-3">
+                    <button id="push-notification-btn" hidden class="w-10 h-10 rounded-full glass-card flex items-center justify-center text-slate-300 hover:text-white" type="button" title="Enable notifications" aria-label="Enable notifications">
+                        <i class="fas fa-bell text-sm"></i>
+                    </button>
                     <!-- Theme Toggle -->
                     <button id="theme-toggle" class="w-10 h-10 rounded-full glass-card flex items-center justify-center text-slate-300 hover:text-white transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-electric/20" title="Toggle theme">
                         <i class="fas fa-moon dark-icon text-sm"></i>

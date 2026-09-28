@@ -94,6 +94,15 @@ python3 -m safe_repo
 - Set `PREMIUM_ARCHIVE_CHANNEL` to a private Telegram channel ID. Processed media is copied there for administrators and approved lifetime members.
 - Keep that channel private and add only administrators/lifetime members; Telegram channel membership controls who can view its saved media.
 
+### Website feature configuration
+
+- Set `STUDY_ADMIN_USERNAME` and `STUDY_ADMIN_PASSWORD` for a single owner, or set `STUDY_ADMIN_USERS` to a JSON object mapping usernames to `{ "password": "...", "role": "owner|editor|viewer" }`. Keep these values in deployment secrets, not source control.
+- Set `STUDY_ADMIN_TELEGRAM_IDS` to comma-separated Telegram chat IDs to receive new-media alerts.
+- Browser push requires an HTTPS site, users logged into the website, and VAPID values in `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (path to the PEM file), and `VAPID_CLAIMS_EMAIL`. Generate a VAPID key pair with `vapid --gen --private-key /secure/path/vapid_private.pem`; get its public key with `vapid --applicationServerKey --private-key /secure/path/vapid_private.pem`.
+- Set `STREAM_CACHE_MAX_GB` to cap media cache size (`0` disables the quota) and `STREAM_CACHE_MAX_AGE_HOURS` to control cleanup retention. Defaults are unlimited quota and 7 hours.
+- Text-based PDFs are indexed automatically. Docker images include English and Hindi Tesseract data for scanned PDF OCR; set `PDF_OCR_LANG` as needed (for example, `eng+hin`).
+- Admins can paste transcript text and WEBVTT subtitles in the media editor. Batch media remains private until an owner approves it.
+
 
 ## Koyeb Deployment
 

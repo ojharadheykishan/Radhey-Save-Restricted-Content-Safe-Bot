@@ -4,30 +4,51 @@
 
 /* CSS Custom Properties */
 :root {
-  --color-deep: #0f172a;
-  --color-electric: #3b82f6;
-  --color-purple: #8b5cf6;
-  --color-cyan: #06b6d4;
-  --color-pink: #ec4899;
-  --color-slate: #94a3b8;
-  --color-white: #f8fafc;
-  --glass-bg: rgba(15, 23, 42, 0.75);
-  --glass-border: rgba(255, 255, 255, 0.1);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  --color-deep: #111a20;
+  --color-electric: #5a9dff;
+  --color-purple: #bc8ce8;
+  --color-cyan: #42d6c5;
+  --color-pink: #ff7799;
+  --color-coral: #fb8d72;
+  --color-lime: #d6ef70;
+  --color-slate: #a3b2b4;
+  --color-white: #f6faf8;
+  --glass-bg: rgba(19, 31, 36, 0.78);
+  --glass-border: rgba(214, 239, 224, 0.12);
+  --glass-shadow: 0 10px 30px rgba(4, 13, 16, 0.24);
   --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   --radius-lg: 1rem;
   --radius-xl: 1.5rem;
   --radius-2xl: 2rem;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-display: 'Poppins', system-ui, sans-serif;
+  --font-sans: 'Manrope', system-ui, sans-serif;
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+}
+
+.site-atmosphere {
+  background-color: var(--color-deep);
+  background-image:
+    linear-gradient(rgba(220, 245, 235, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(220, 245, 235, 0.025) 1px, transparent 1px),
+    linear-gradient(125deg, #111a20 0%, #17343a 54%, #30272b 100%);
+  background-size: 48px 48px, 48px 48px, cover;
 }
 
 /* Light Theme Variables */
 body[data-theme="light"] {
-  --color-deep: #f8fafc;
-  --glass-bg: rgba(255, 255, 255, 0.85);
+  --color-deep: #f5f8f5;
+  --glass-bg: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(30, 62, 53, 0.12);
   --glass-border: rgba(0, 0, 0, 0.08);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ============================================
