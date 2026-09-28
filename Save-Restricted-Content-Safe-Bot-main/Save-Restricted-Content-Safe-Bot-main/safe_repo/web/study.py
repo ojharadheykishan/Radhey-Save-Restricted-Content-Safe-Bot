@@ -166,8 +166,12 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
             continue
         if subfolder_filter and subfolder_filter != subfolder_name:
             continue
-        if playlist_param and playlist_param.lower() != str(video.get("playlist") or f"{video.get('subject') or 'General'} / {video.get('folder') or 'General'}{f' / {video.get("subfolder")}' if video.get('subfolder') else ''}").lower():
-            continue
+        if playlist_param:
+            default_playlist = f"{video.get('subject') or 'General'} / {video.get('folder') or 'General'}"
+            if video.get("subfolder"):
+                default_playlist += f" / {video['subfolder']}"
+            if playlist_param.lower() != str(video.get("playlist") or default_playlist).lower():
+                continue
         if media_type_param and media_type_param != str(video.get("media_type") or "video").lower():
             continue
         filtered.append(video)
