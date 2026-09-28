@@ -182,12 +182,17 @@
         <span class="text-slate-400 text-sm">{{ videos|length }} items found</span>
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {% for item in videos %}
+        {% for date_group in date_groups %}
+        <div class="col-span-full flex items-center gap-3 border-b border-white/10 pb-2 pt-2">
+            <h3 class="font-display text-lg font-semibold text-white">{{ date_group.date }}</h3>
+            <span class="text-xs text-slate-500">{{ date_group.videos|length }} items</span>
+        </div>
+        {% for item in date_group.videos %}
         <div class="study-card glass-card rounded-2xl overflow-hidden group">
             <div class="h-36 bg-gradient-to-br from-deep via-slate-800 to-deep flex items-center justify-center relative overflow-hidden">
-                {% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="{{ item.title }} thumbnail" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove()">{% endif %}
+                {% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="{{ item.title }} thumbnail" class="absolute inset-0 w-full h-full object-cover" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden')">{% endif %}
                 <div class="absolute inset-0 bg-gradient-to-br from-electric/10 to-purple/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                <span class="text-4xl font-bold text-white/10 group-hover:text-white/20 transition-all duration-500 group-hover:scale-110 transition-transform duration-500">{{ (item.subject or 'Study')[:2].upper() }}</span>
+                <span class="{% if item.thumbnail_url %}hidden {% endif %}absolute inset-0 flex items-center justify-center text-4xl font-bold text-white/10 group-hover:text-white/20 transition-all duration-500 group-hover:scale-110 transition-transform duration-500">{{ (item.subject or 'Study')[:2].upper() }}</span>
                 <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300">
                     <div class="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
                         <i class="fas {{ 'fa-file-pdf' if item.media_type == 'pdf' else 'fa-play' }} text-white text-xl ml-1"></i>
@@ -210,6 +215,7 @@
                 <p class="text-slate-400 text-sm mb-3 line-clamp-1">{{ item.description or 'Study video' }}</p>
                 <div class="flex items-center justify-between">
                     <span class="text-xs text-slate-500">{{ item.subject }} · {{ item.folder or 'General' }}</span>
+                    <span class="text-xs text-slate-500">{{ item.date or 'Date not set' }}</span>
                     <div class="flex gap-2">
                         <a href="{{ item.watch_url }}" class="action-btn w-8 h-8 rounded-full bg-electric/20 text-electric flex items-center justify-center hover:bg-electric/30" title="Watch">
                             <i class="fas {{ 'fa-file-pdf' if item.media_type == 'pdf' else 'fa-play' }} text-xs"></i>
@@ -221,6 +227,7 @@
                 </div>
             </div>
         </div>
+        {% endfor %}
         {% endfor %}
     </div>
 </section>

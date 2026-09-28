@@ -7,7 +7,7 @@ import json
 import tempfile
 from flask import Flask, send_file, send_from_directory, abort, redirect, request, render_template, jsonify, Response
 from safe_repo.core.media_links import get_stream_file, get_stream_thumbnail, read_stream_entries, get_stream_entry, store_stream_thumbnail
-from safe_repo.web.admin import admin_dashboard_view, admin_login_view, admin_logout_view, toggle_featured_view, toggle_trending_view, delete_entry_view, edit_entry_view, bulk_action_view, require_admin, is_admin
+from safe_repo.web.admin import admin_dashboard_view, admin_login_view, admin_logout_view, toggle_featured_view, toggle_trending_view, delete_entry_view, edit_entry_view, bulk_action_view, rename_folder_view, require_admin, is_admin
 from safe_repo.web.api import register_api_routes
 from safe_repo.web import auth as auth_module, users as users_module
 from safe_repo.web.study import build_public_study_url, build_video_index, load_catalog_entries
@@ -52,7 +52,7 @@ def home():
     folder_tree = index.get("folder_tree", [])
     filter_summary = index.get("filter_summary", {})
 
-    return render_template('home.html', videos=videos, featured=featured, latest=latest, trending=trending, subjects=subjects, playlists=playlists, folders=folders, folder_tree=folder_tree, filter_summary=filter_summary, request=request)
+    return render_template('home.html', videos=videos, date_groups=index.get("date_groups", []), featured=featured, latest=latest, trending=trending, subjects=subjects, playlists=playlists, folders=folders, folder_tree=folder_tree, filter_summary=filter_summary, request=request)
 
 
 @app.route('/study')
@@ -77,7 +77,7 @@ def study_home():
     folder_tree = index.get("folder_tree", [])
     filter_summary = index.get("filter_summary", {})
 
-    return render_template('study.html', videos=videos, featured=featured, latest=latest, trending=trending, subjects=subjects, categories=categories, folders=folders, folder_tree=folder_tree, playlists=playlists, filter_summary=filter_summary, request=request)
+    return render_template('study.html', videos=videos, date_groups=index.get("date_groups", []), featured=featured, latest=latest, trending=trending, subjects=subjects, categories=categories, folders=folders, folder_tree=folder_tree, playlists=playlists, filter_summary=filter_summary, request=request)
 
 
 @app.route('/go')
@@ -156,6 +156,11 @@ def admin_upload_thumbnail(token):
 @app.route('/api/admin/videos/bulk', methods=['POST'])
 def admin_bulk_action():
     return bulk_action_view()
+
+
+@app.route('/api/admin/folders/rename', methods=['POST'])
+def admin_rename_folder():
+    return rename_folder_view()
 
 
 @app.route('/auth/register', methods=['GET', 'POST'])

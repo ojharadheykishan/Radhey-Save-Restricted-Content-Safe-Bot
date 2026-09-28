@@ -69,6 +69,24 @@ def test_home_route_renders_filtered_catalog_for_subject_date_queries(monkeypatc
     assert 'aria-label="Filter by subfolder"' in html
 
 
+def test_public_library_groups_media_by_source_date(tmp_path, monkeypatch):
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(json.dumps([
+        {"token": "older", "title": "Older", "timestamp": "2026-04-01 10:00:00", "approved": True},
+        {"token": "newer", "title": "Newer", "timestamp": "2026-04-03 10:00:00", "approved": True},
+    ]), encoding="utf-8")
+    monkeypatch.setenv("STREAM_CATALOG_FILE", str(catalog_path))
+
+    index = build_video_index()
+    response = flask_app.test_client().get("/")
+    html = response.get_data(as_text=True)
+
+    assert [group["date"] for group in index["date_groups"]] == ["2026-04-03", "2026-04-01"]
+    assert "2026-04-03" in html
+    assert "2026-04-01" in html
+    assert html.index("2026-04-03") < html.index("2026-04-01")
+
+
 def test_folder_selector_exposes_existing_subfolder_and_keeps_filters(tmp_path, monkeypatch):
     catalog_path = tmp_path / "catalog.json"
     catalog_path.write_text(json.dumps([
@@ -344,6 +362,53 @@ def test_editor_role_cannot_delete_or_change_approval(tmp_path, monkeypatch):
     assert forbidden.status_code == 403
     assert updated.status_code == 200
     assert json.loads(catalog_path.read_text(encoding="utf-8"))[0]["folder"] == "Physics"
+
+
+def test_editor_can_rename_folder_and_subfolder(tmp_path, monkeypatch):
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(json.dumps([
+        {"token": "one", "folder": "Physics", "subfolder": "Mechanics"},
+        {"token": "two", "folder": "Physics", "subfolder": "Optics"},
+        {"token": "three", "folder": "Chemistry", "subfolder": "Mechanics"},
+    ]), encoding="utf-8")
+    monkeypatch.setenv("STREAM_CATALOG_FILE", str(catalog_path))
+    client = flask_app.test_client()
+    with client.session_transaction() as session:
+        session["is_admin"] = True
+        session["admin_role"] = "editor"
+
+    folder_result = client.post("/api/admin/folders/rename", json={
+        "kind": "folder", "old_name": "Physics", "new_name": "Science",
+    })
+    subfolder_result = client.post("/api/admin/folders/rename", json={
+        "kind": "subfolder", "old_name": "Mechanics", "new_name": "Motion", "parent": "Science",
+    })
+
+    assert folder_result.get_json()["updated"] == 2
+    assert subfolder_result.get_json()["updated"] == 1
+    entries = json.loads(catalog_path.read_text(encoding="utf-8"))
+    assert entries[0]["folder"] == "Science"
+    assert entries[0]["subfolder"] == "Motion"
+    assert entries[2]["subfolder"] == "Mechanics"
+
+
+def test_bulk_subfolder_assigns_parent_folder(tmp_path, monkeypatch):
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(json.dumps([{"token": "one", "folder": "Old"}]), encoding="utf-8")
+    monkeypatch.setenv("STREAM_CATALOG_FILE", str(catalog_path))
+    client = flask_app.test_client()
+    with client.session_transaction() as session:
+        session["is_admin"] = True
+        session["admin_role"] = "editor"
+
+    response = client.post("/api/admin/videos/bulk", json={
+        "action": "subfolder", "tokens": ["one"], "parent": "Physics", "value": "Mechanics",
+    })
+
+    assert response.status_code == 200
+    entry = json.loads(catalog_path.read_text(encoding="utf-8"))[0]
+    assert entry["folder"] == "Physics"
+    assert entry["subfolder"] == "Mechanics"
 
 
 def test_admin_edit_saves_transcript_vtt_playlist_and_approval(tmp_path, monkeypatch):

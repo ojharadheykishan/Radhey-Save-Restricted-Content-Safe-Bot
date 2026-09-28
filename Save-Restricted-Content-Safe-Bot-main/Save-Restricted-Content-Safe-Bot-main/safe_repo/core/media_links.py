@@ -120,7 +120,11 @@ def _create_media_thumbnail(source_path, output_path):
             capture.release()
             return False
         frame_count = capture.get(cv2.CAP_PROP_FRAME_COUNT)
-        if frame_count > 0:
+        fps = capture.get(cv2.CAP_PROP_FPS)
+        minute_frame = int(fps * 60) if fps > 0 else 0
+        if frame_count > minute_frame > 0:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, minute_frame)
+        elif frame_count > 0:
             capture.set(cv2.CAP_PROP_POS_FRAMES, int(frame_count / 2))
         success, frame = capture.read()
         capture.release()
@@ -326,7 +330,7 @@ def get_catalog_path(catalog_path=None):
     return str(repo_dir / "stream_catalog.json")
 
 
-def append_stream_link(player_url, stream_url, label="stream", archive_path=None, catalog_path=None, subject=None, description=None, title=None, token=None, thumbnail_url=None, media_type="video", content_hash=None, pdf_text=None, transcript="", subtitles="", playlist="", sort_order=0, approved=True, folder=None, subfolder=None, category=None):
+def append_stream_link(player_url, stream_url, label="stream", archive_path=None, catalog_path=None, subject=None, description=None, title=None, token=None, thumbnail_url=None, media_type="video", content_hash=None, pdf_text=None, transcript="", subtitles="", playlist="", sort_order=0, approved=True, folder=None, subfolder=None, category=None, media_date=None):
     """Append a generated stream link to a text archive file and save structured metadata."""
     archive_file = Path(get_archive_path(archive_path))
     archive_file.parent.mkdir(parents=True, exist_ok=True)
@@ -342,7 +346,7 @@ def append_stream_link(player_url, stream_url, label="stream", archive_path=None
 
     entry = {
         "timestamp": stamp,
-        "date": dt.now().strftime("%Y-%m-%d"),
+        "date": str(media_date or dt.now().strftime("%Y-%m-%d"))[:10],
         "label": label,
         "subject": subject or "General",
         "category": category or "General",

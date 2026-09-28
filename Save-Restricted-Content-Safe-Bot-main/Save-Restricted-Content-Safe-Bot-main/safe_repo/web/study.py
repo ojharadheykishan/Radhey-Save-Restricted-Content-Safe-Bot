@@ -107,7 +107,7 @@ def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, A
                 "subject": subject,
                 "category": category,
                 "timestamp": str(raw_entry.get("timestamp") or ""),
-                "date": str(raw_entry.get("date") or ""),
+                "date": str(raw_entry.get("date") or str(raw_entry.get("timestamp") or "").replace("T", " ").split(" ", 1)[0]),
                 "featured": bool(raw_entry.get("featured")),
                 "trending": bool(raw_entry.get("trending")),
                 "views": int(raw_entry.get("views") or 0),
@@ -179,6 +179,13 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
         key=lambda item: (item.get("views", 0), item.get("timestamp", "")),
         reverse=True,
     )
+    videos_by_date: Dict[str, List[Dict[str, Any]]] = {}
+    for video in latest:
+        videos_by_date.setdefault(video.get("date") or "Date not set", []).append(video)
+    date_order = sorted((day for day in videos_by_date if day != "Date not set"), reverse=True)
+    if "Date not set" in videos_by_date:
+        date_order.append("Date not set")
+    date_groups = [{"date": day, "videos": videos_by_date[day]} for day in date_order]
 
     subject_counts: Dict[str, int] = {}
     subject_weights: Dict[str, int] = {}
@@ -244,6 +251,7 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
 
     return {
         "videos": filtered,
+        "date_groups": date_groups,
         "featured": featured[:6],
         "latest": latest[:8],
         "trending": trending[:8],

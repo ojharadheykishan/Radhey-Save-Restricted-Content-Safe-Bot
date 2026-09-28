@@ -142,6 +142,8 @@ def _publish_batch_media_to_site(media_file, thumbnail_path, source_message, med
 
     folder = next((line.split(":", 1)[1].strip() for line in lines if line.lower().startswith("folder:")), "")
     subfolder = next((line.split(":", 1)[1].strip() for line in lines if line.lower().startswith("subfolder:")), "")
+    source_date = getattr(source_message, "date", None)
+    media_date = source_date.strftime("%Y-%m-%d") if hasattr(source_date, "strftime") else None
 
     append_stream_link(
         saved["player_url"],
@@ -158,6 +160,7 @@ def _publish_batch_media_to_site(media_file, thumbnail_path, source_message, med
         folder=folder,
         subfolder=subfolder,
         approved=False,
+        media_date=media_date,
     )
     return saved
 
@@ -447,7 +450,7 @@ async def get_msg(
                     if is_batch and msg.document.mime_type == "application/pdf":
                         published = _publish_batch_media_to_site(file, thumb_path, msg, "pdf")
                         if published:
-                            await notify_new_media(lines[0] if lines else os.path.basename(file), published["player_url"])
+                            await notify_new_media(lines[0] if lines else os.path.basename(file), published["player_url"], admin_only=True)
                     try:
                         if target_chat_id != LOG_GROUP:
                             await safe_repo.copy(LOG_GROUP)
@@ -523,7 +526,7 @@ async def get_msg(
                     if is_batch:
                         published = _publish_batch_media_to_site(file, thumb_path, msg, "video")
                         if published:
-                            await notify_new_media(lines[0] if lines else os.path.basename(file), published["player_url"])
+                            await notify_new_media(lines[0] if lines else os.path.basename(file), published["player_url"], admin_only=True)
                     try:
                         if target_chat_id != LOG_GROUP:
                             await safe_repo.copy(LOG_GROUP)

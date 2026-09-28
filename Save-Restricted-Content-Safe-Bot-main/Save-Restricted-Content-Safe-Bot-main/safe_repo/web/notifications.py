@@ -86,7 +86,7 @@ def send_browser_notification(title, url, body="New study media is available"):
     return delivered
 
 
-async def notify_new_media(title, url):
+async def notify_new_media(title, url, admin_only=False):
     telegram_ids = [value.strip() for value in os.environ.get("STUDY_ADMIN_TELEGRAM_IDS", "").split(",") if value.strip()]
     if telegram_ids:
         try:
@@ -95,9 +95,12 @@ async def notify_new_media(title, url):
             for raw_chat_id in telegram_ids:
                 chat_id = int(raw_chat_id) if raw_chat_id.lstrip("-").isdigit() else raw_chat_id
                 try:
-                    await bot_client.send_message(chat_id, f"New media added: {title}\n{url}")
+                    status = "Media pending admin approval" if admin_only else "New media added"
+                    await bot_client.send_message(chat_id, f"{status}: {title}\n{url}")
                 except Exception as error:
                     logger.debug("Telegram media notification skipped: %s", error)
         except Exception as error:
             logger.debug("Telegram notifications unavailable: %s", error)
+    if admin_only:
+        return 0
     return await asyncio.to_thread(send_browser_notification, title, url)

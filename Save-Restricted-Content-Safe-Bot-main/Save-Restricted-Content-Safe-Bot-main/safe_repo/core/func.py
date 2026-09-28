@@ -640,7 +640,7 @@ def process_thumbnail(input_path, output_path, max_size=(320, 320)):
 
 
 def generate_video_thumbnail(video_path, output_path, max_size=(320, 320)):
-    """Generate a thumbnail from video at midpoint using OpenCV."""
+    """Prefer a frame at one minute, or the midpoint for shorter videos."""
     try:
         vcap = cv2.VideoCapture(video_path)
         if not vcap.isOpened():
@@ -653,8 +653,8 @@ def generate_video_thumbnail(video_path, output_path, max_size=(320, 320)):
             return False
 
         duration = frame_count / fps
-        mid_frame = int(frame_count / 2)
-        vcap.set(cv2.CAP_PROP_POS_FRAMES, mid_frame)
+        frame_number = int(fps * 60) if duration > 60 else int(frame_count / 2)
+        vcap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
         ret, frame = vcap.read()
         vcap.release()
 

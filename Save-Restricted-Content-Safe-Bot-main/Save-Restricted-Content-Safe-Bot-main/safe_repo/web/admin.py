@@ -172,7 +172,7 @@ def bulk_action_view():
     data = request.get_json(silent=True) or {}
     action = str(data.get("action") or "").strip()
     tokens = data.get("tokens")
-    if action not in {"featured", "trending", "delete", "approve", "unapprove", "folder", "subject", "playlist", "sort_order"}:
+    if action not in {"featured", "trending", "delete", "approve", "unapprove", "folder", "subfolder", "subject", "playlist", "sort_order"}:
         return jsonify({"success": False, "error": "Unsupported bulk action"}), 400
     if not isinstance(tokens, list) or not tokens:
         return jsonify({"success": False, "error": "Select at least one item"}), 400
@@ -205,9 +205,41 @@ def bulk_action_view():
             if str(entry.get("token")) in selected_tokens:
                 if action in {"approve", "unapprove"}:
                     entry["approved"] = action == "approve"
+                elif action == "subfolder":
+                    entry["folder"] = str(data.get("parent") or "General").strip() or "General"
+                    entry["subfolder"] = value
                 else:
                     entry[action] = value
                 updated_count += 1
 
     _save_entries(entries)
     return jsonify({"success": True, "action": action, "updated": updated_count})
+
+
+def rename_folder_view():
+    require_admin()
+    data = request.get_json(silent=True) or {}
+    kind = str(data.get("kind") or "folder").strip()
+    old_name = str(data.get("old_name") or "").strip()
+    new_name = str(data.get("new_name") or "").strip()
+    parent = str(data.get("parent") or "").strip()
+    if kind not in {"folder", "subfolder"} or not old_name or not new_name:
+        return jsonify({"success": False, "error": "A valid old and new name are required"}), 400
+    if len(new_name) > 120:
+        return jsonify({"success": False, "error": "Folder names must be 120 characters or fewer"}), 400
+
+    entries = _load_entries()
+    field = "folder" if kind == "folder" else "subfolder"
+    updated_count = 0
+    for entry in entries:
+        if str(entry.get(field) or "").strip() != old_name:
+            continue
+        if kind == "subfolder" and str(entry.get("folder") or "").strip() != parent:
+            continue
+        entry[field] = new_name
+        updated_count += 1
+    if not updated_count:
+        return jsonify({"success": False, "error": "No matching folder or subfolder was found"}), 404
+
+    _save_entries(entries)
+    return jsonify({"success": True, "updated": updated_count})

@@ -11,6 +11,7 @@ from datetime import datetime
 from pyrogram import filters
 from safe_repo import app
 from config import STREAM_CHANNEL, STREAM_CHANNEL_USERNAME, CLONE_LOG_CHANNEL, PREMIUM_ARCHIVE_CHANNEL
+from safe_repo.core.func import extract_original_thumbnail
 from safe_repo.core.media_links import append_stream_link, find_duplicate_media, save_stream_file, read_stream_links
 from safe_repo.web.study import build_public_study_url
 
@@ -269,7 +270,7 @@ async def archive_media_for_premium(message):
     return False
 
 
-async def build_public_stream_link(message, media_file=None):
+async def build_public_stream_link(message, media_file=None, thumbnail_path=None):
     """Build a public stream link from local cache when possible, else fall back to a Telegram channel post for large or unsupported files."""
     if media_file and os.path.exists(media_file):
         duplicate = find_duplicate_media(media_file)
@@ -284,7 +285,7 @@ async def build_public_stream_link(message, media_file=None):
             }
         try:
             logger.info(f"build_public_stream_link: attempting to cache file {media_file}")
-            saved = save_stream_file(media_file)
+            saved = save_stream_file(media_file, thumbnail_path=thumbnail_path)
             if saved:
                 logger.info(f"build_public_stream_link: successfully cached file, returning URLs")
                 return {
@@ -417,6 +418,7 @@ async def send_stream_link(sender, message, caption_prefix="🎬 **Stream Link:*
 
 async def handle_direct_media(client, message):
     """Generate a public stream link for any media sent directly to the bot."""
+    thumbnail_path = None
     try:
         logger.info(f"handle_direct_media: received media message from {message.chat.id}")
         if not has_media_payload(message):
@@ -448,6 +450,9 @@ async def handle_direct_media(client, message):
         logger.info(f"handle_direct_media: successfully downloaded media to {media_file}")
         await archive_media_for_premium(message)
 
+        if getattr(message, "video", None) or getattr(message, "document", None):
+            thumbnail_path = await extract_original_thumbnail(client, message, f"{media_file}.thumb.jpg")
+
         try:
             await app.edit_message_text(
                 chat_id,
@@ -457,7 +462,7 @@ async def handle_direct_media(client, message):
         except Exception:
             pass
 
-        public_link = await build_public_stream_link(message, media_file)
+        public_link = await build_public_stream_link(message, media_file, thumbnail_path)
         if not public_link:
             logger.error(f"handle_direct_media: build_public_stream_link returned None")
             try:
@@ -512,6 +517,12 @@ async def handle_direct_media(client, message):
             await app.send_message(chat_id, f"⚠️ Error: {str(e)}")
         except Exception:
             pass
+    finally:
+        if thumbnail_path and os.path.exists(thumbnail_path):
+            try:
+                os.remove(thumbnail_path)
+            except OSError:
+                pass
 
 
 @app.on_message(

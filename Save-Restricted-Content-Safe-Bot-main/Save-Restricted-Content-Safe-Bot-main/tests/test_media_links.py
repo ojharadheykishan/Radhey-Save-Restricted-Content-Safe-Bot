@@ -1,6 +1,7 @@
 import os
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
@@ -146,6 +147,42 @@ def test_find_duplicate_media_matches_content_hash(tmp_path):
     assert duplicate["token"] == "existing"
 
 
+def test_video_thumbnail_fallback_uses_frame_at_one_minute(tmp_path, monkeypatch):
+    from safe_repo.core.func import generate_video_thumbnail
+
+    positions = []
+
+    class Capture:
+        def isOpened(self):
+            return True
+
+        def get(self, prop):
+            if prop == cv2.CAP_PROP_FRAME_COUNT:
+                return 2000
+            if prop == cv2.CAP_PROP_FPS:
+                return 10
+            return 0
+
+        def set(self, prop, value):
+            positions.append((prop, value))
+
+        def read(self):
+            return True, np.zeros((8, 8, 3), dtype=np.uint8)
+
+        def release(self):
+            return None
+
+    monkeypatch.setattr(cv2, "VideoCapture", lambda _path: Capture())
+    monkeypatch.setattr(cv2, "imwrite", lambda path, *_args: (Path(path).write_bytes(b"jpeg"), True)[1])
+    output = tmp_path / "poster.jpg"
+
+    assert media_links._create_media_thumbnail("lesson.mp4", str(output))
+    assert positions == [(cv2.CAP_PROP_POS_FRAMES, 600)]
+    positions.clear()
+    assert generate_video_thumbnail("lesson.mp4", str(output))
+    assert positions == [(cv2.CAP_PROP_POS_FRAMES, 600)]
+
+
 def test_batch_media_publisher_adds_pdf_to_website_catalog(tmp_path, monkeypatch):
     from safe_repo.core.get_func import _publish_batch_media_to_site
 
@@ -160,6 +197,7 @@ def test_batch_media_publisher_adds_pdf_to_website_catalog(tmp_path, monkeypatch
 
     class BatchMessage:
         caption = "Lesson 4\nSubject: Physics"
+        date = datetime(2024, 5, 6, 8, 30, tzinfo=timezone.utc)
 
     _publish_batch_media_to_site(str(source), str(poster), BatchMessage(), "pdf")
     assert _publish_batch_media_to_site(str(source), str(poster), BatchMessage(), "pdf") is None
@@ -171,3 +209,4 @@ def test_batch_media_publisher_adds_pdf_to_website_catalog(tmp_path, monkeypatch
     assert entries[0]["media_type"] == "pdf"
     assert entries[0]["thumbnail_url"].endswith(f"/thumbnail/{entries[0]['token']}")
     assert entries[0]["approved"] is False
+    assert entries[0]["date"] == "2024-05-06"

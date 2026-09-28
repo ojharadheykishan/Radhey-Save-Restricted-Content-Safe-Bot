@@ -221,7 +221,10 @@
                         <i class="fas fa-fire mr-1"></i>Toggle Trending
                     </button>
                     <button onclick="bulkAction('folder')" class="bulk-action-btn px-4 py-2 rounded-lg bg-cyan/10 text-cyan text-sm font-medium hover:bg-cyan/20 transition-colors">
-                        <i class="fas fa-folder mr-1"></i>Set Folder
+                        <i class="fas fa-folder mr-1"></i>Create / move folder
+                    </button>
+                    <button onclick="bulkAction('subfolder')" class="bulk-action-btn px-4 py-2 rounded-lg bg-teal-500/10 text-teal-300 text-sm font-medium hover:bg-teal-500/20 transition-colors">
+                        <i class="fas fa-folder-open mr-1"></i>Create / move subfolder
                     </button>
                     <button onclick="bulkAction('playlist')" class="bulk-action-btn px-4 py-2 rounded-lg bg-electric/10 text-electric text-sm font-medium hover:bg-electric/20 transition-colors">
                         <i class="fas fa-list mr-1"></i>Set Playlist
@@ -255,6 +258,10 @@
                 <select id="media-sort" aria-label="Sort media" class="rounded-xl border border-white/10 bg-slate-900 px-4 py-3 text-white">
                     <option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="title">Title A-Z</option>
                 </select>
+                {% if admin_role != 'viewer' %}
+                <button type="button" onclick="renameCatalogName('folder')" class="rounded-xl bg-cyan/10 px-4 py-3 text-sm font-medium text-cyan hover:bg-cyan/20">Rename folder</button>
+                <button type="button" onclick="renameCatalogName('subfolder')" class="rounded-xl bg-teal-500/10 px-4 py-3 text-sm font-medium text-teal-200 hover:bg-teal-500/20">Rename subfolder</button>
+                {% endif %}
                 <button id="export-media" type="button" class="rounded-xl bg-amber-400/10 px-4 py-3 text-sm font-medium text-amber-200 hover:bg-amber-400/20"><i class="fas fa-download mr-2"></i>Export CSV</button>
                 <span id="media-result-count" class="text-sm text-slate-400">{{ entries|length }} items</span>
             </div>
@@ -516,10 +523,16 @@
         const tokens = [...selected].map(cb => cb.dataset.token);
         let endpoint = '/api/admin/videos/bulk';
         let payload = { action, tokens };
-        if (action === 'folder' || action === 'playlist') {
-            const value = prompt(action === 'folder' ? 'Folder name' : 'Playlist name');
+        if (action === 'folder' || action === 'subfolder' || action === 'playlist') {
+            const labels = { folder: 'Folder name', subfolder: 'Subfolder name', playlist: 'Playlist name' };
+            const value = prompt(labels[action]);
             if (value === null || !value.trim()) return;
             payload.value = value.trim();
+            if (action === 'subfolder') {
+                const parent = prompt('Parent folder name');
+                if (parent === null || !parent.trim()) return;
+                payload.parent = parent.trim();
+            }
         }
         if (action === 'tags') {
             const tags = prompt('Enter comma-separated tags');
@@ -542,6 +555,32 @@
             setTimeout(() => window.location.reload(), 700);
         } catch (error) {
             showToast(error.message || 'Bulk action failed', 'error');
+        }
+    }
+
+    async function renameCatalogName(kind) {
+        const oldName = prompt(kind === 'folder' ? 'Current folder name' : 'Current subfolder name');
+        if (oldName === null || !oldName.trim()) return;
+        const newName = prompt(`New ${kind} name`);
+        if (newName === null || !newName.trim()) return;
+        const payload = { kind, old_name: oldName.trim(), new_name: newName.trim() };
+        if (kind === 'subfolder') {
+            const parent = prompt('Parent folder name');
+            if (parent === null || !parent.trim()) return;
+            payload.parent = parent.trim();
+        }
+        try {
+            const response = await fetch('/api/admin/folders/rename', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.error || 'Rename failed');
+            showToast(`Renamed ${result.updated} media items`, 'success');
+            window.location.reload();
+        } catch (error) {
+            showToast(error.message || 'Rename failed', 'error');
         }
     }
 

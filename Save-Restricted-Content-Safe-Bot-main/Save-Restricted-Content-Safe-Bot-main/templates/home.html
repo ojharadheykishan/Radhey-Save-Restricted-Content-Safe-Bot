@@ -272,16 +272,22 @@
     </div>
     {% if videos %}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {% for item in videos %}
+        {% for date_group in date_groups %}
+        <div class="col-span-full flex items-center gap-3 border-b border-white/10 pb-2 pt-2">
+            <h3 class="font-display text-lg font-semibold text-white">{{ date_group.date }}</h3>
+            <span class="text-xs text-slate-500">{{ date_group.videos|length }} items</span>
+        </div>
+        {% for item in date_group.videos %}
         <article class="video-card glass-card rounded-2xl overflow-hidden group">
             <div class="h-28 bg-gradient-to-br from-deep to-slate-800 flex items-center justify-center relative overflow-hidden">
-                {% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="{{ item.title }} thumbnail" class="absolute inset-0 w-full h-full object-cover" onerror="this.remove()">{% endif %}
-                <span class="text-3xl font-bold text-white/15">{{ (item.subject or 'Video')[:2].upper() }}</span>
+                {% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="{{ item.title }} thumbnail" class="absolute inset-0 w-full h-full object-cover" onerror="this.classList.add('hidden'); this.nextElementSibling.classList.remove('hidden')">{% endif %}
+                <span class="{% if item.thumbnail_url %}hidden {% endif %}absolute inset-0 flex items-center justify-center text-3xl font-bold text-white/15">{{ (item.subject or 'Video')[:2].upper() }}</span>
             </div>
             <div class="p-5">
                 <h3 class="font-semibold text-white line-clamp-2 group-hover:text-electric">{{ item.title }}</h3>
                 <p class="text-slate-400 text-sm mt-2">{{ item.subject }} · {{ item.category }}</p>
                 <p class="text-slate-500 text-xs mt-2">{{ item.folder or 'General' }}{% if item.subfolder %} / {{ item.subfolder }}{% endif %}</p>
+                <p class="text-slate-500 text-xs mt-1"><i class="fas fa-calendar-day mr-1"></i>{{ item.date or 'Date not set' }}</p>
                 <div class="flex gap-2 mt-4">
                     <a href="{{ item.watch_url }}" class="flex-1 text-center py-2 rounded-xl bg-electric/20 text-electric text-sm font-medium hover:bg-electric/30">
                         <i class="fas fa-play mr-1"></i>Watch
@@ -292,6 +298,7 @@
                 </div>
             </div>
         </article>
+        {% endfor %}
         {% endfor %}
     </div>
     {% else %}
