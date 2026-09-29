@@ -437,62 +437,59 @@ def _sanitize_for_json(obj):
     if isinstance(obj, bson.ObjectId):
         return str(obj)
     if isinstance(obj, dict):
-        return {key: _sanitize_for_json(val) for key, val in obj.items() if key != "_id" or str(key) != "_id"}
+        return {key: _sanitize_for_json(val) for key, val in obj.items() if key != "_id"}
     if isinstance(obj, list):
         return [_sanitize_for_json(item) for item in obj]
     return obj
 
 
 def _mongo_catalog_coll():
+    """Return sync pymongo collection (works from both sync and async contexts)."""
     try:
-        from safe_repo.core.mongo.mongo_client import get_mongo_db, is_mongo_available
+        from safe_repo.core.mongo.mongo_client import get_sync_db, is_mongo_available
         if not is_mongo_available():
             return None
-        db = get_mongo_db()
+        db = get_sync_db()
         if db is None:
             return None
         return db["stream_catalog"]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"MongoDB catalog collection unavailable: {e}")
         return None
 
 
 async def read_stream_entries_async(catalog_path=None):
-    """Read structured stream-link entries from MongoDB (primary) or catalog file."""
-    coll = _mongo_catalog_coll()
-    if coll is not None:
-        docs = await coll.find({}).sort("timestamp", -1).to_list(length=100000)
-        entries = []
-        for doc in docs:
-            doc.pop("_id", None)
-            entries.append(_sanitize_for_json(doc))
-        if entries:
-            return entries
+    """Async version: Read entries from MongoDB (primary) or catalog file."""
+    if catalog_path is None:
+        try:
+            from safe_repo.core.mongo.mongo_client import get_mongo_db, is_mongo_available
+            if is_mongo_available():
+                db = get_mongo_db()
+                if db is not None:
+                    coll = db["stream_catalog"]
+                    docs = await coll.find({}).sort("timestamp", -1).to_list(length=100000)
+                    entries = []
+                    for doc in docs:
+                        doc.pop("_id", None)
+                        entries.append(_sanitize_for_json(doc))
+                    if entries:
+                        return entries
+        except Exception as e:
+            logger.debug(f"MongoDB async read failed, falling back to JSON: {e}")
 
     return read_stream_entries(catalog_path)
 
 
 async def _mongo_write_catalog(entries):
-    """Write all catalog entries to MongoDB, replacing existing documents."""
-    coll = _mongo_catalog_coll()
-    if coll is None:
-        return
-    sanitized = _sanitize_for_json(entries)
-    await coll.delete_many({})
-    if sanitized:
-        try:
-            await coll.insert_many(sanitized, ordered=False)
-        except Exception:
-            for entry in sanitized:
-                try:
-                    await coll.insert_one(entry)
-                except Exception:
-                    pass
-
-
-async def write_stream_entries_async(entries, catalog_path=None):
-    """Write catalog entries to MongoDB (primary) and local JSON (backup)."""
-    coll = _mongo_catalog_coll()
-    if coll is not None:
+    """Async: Write all catalog entries to MongoDB."""
+    try:
+        from safe_repo.core.mongo.mongo_client import get_mongo_db, is_mongo_available
+        if not is_mongo_available():
+            return
+        db = get_mongo_db()
+        if db is None:
+            return
+        coll = db["stream_catalog"]
         sanitized = _sanitize_for_json(entries)
         await coll.delete_many({})
         if sanitized:
@@ -504,26 +501,59 @@ async def write_stream_entries_async(entries, catalog_path=None):
                         await coll.insert_one(entry)
                     except Exception:
                         pass
+    except Exception as e:
+        logger.debug(f"MongoDB async write failed: {e}")
 
+
+async def write_stream_entries_async(entries, catalog_path=None):
+    """Async: Write catalog entries to MongoDB (primary) and local JSON (backup)."""
+    if catalog_path is None:
+        await _mongo_write_catalog(entries)
     write_stream_entries(entries, catalog_path=catalog_path)
+
+
+def _mongo_read_sync():
+    """Sync: Read entries from MongoDB using sync pymongo."""
+    coll = _mongo_catalog_coll()
+    if coll is None:
+        return None
+    try:
+        docs = list(coll.find({}, {"_id": 0}).sort("timestamp", -1))
+        if docs:
+            entries = [_sanitize_for_json(doc) for doc in docs]
+            return entries
+    except Exception as e:
+        logger.debug(f"MongoDB sync read failed: {e}")
+    return None
+
+
+def _mongo_write_sync(entries):
+    """Sync: Write entries to MongoDB using sync pymongo."""
+    coll = _mongo_catalog_coll()
+    if coll is None:
+        return False
+    try:
+        sanitized = _sanitize_for_json(entries)
+        coll.delete_many({})
+        if sanitized:
+            coll.insert_many(sanitized, ordered=False)
+        return True
+    except Exception as e:
+        logger.debug(f"MongoDB sync write failed: {e}")
+        try:
+            for entry in _sanitize_for_json(entries):
+                coll.insert_one(entry)
+            return True
+        except Exception:
+            return False
 
 
 def read_stream_entries(catalog_path=None):
     """Read structured stream-link entries from MongoDB (primary) or catalog file."""
     if catalog_path is None:
-        coll = _mongo_catalog_coll()
-        if coll is not None:
-            try:
-                from safe_repo.core.mongo.mongo_client import _run_async as _run
-                docs = _run(coll.find({}).sort("timestamp", -1).to_list(length=100000))
-                entries = []
-                for doc in docs:
-                    doc.pop("_id", None)
-                    entries.append(doc)
-                if entries:
-                    return entries
-            except Exception:
-                pass
+        entries = _mongo_read_sync()
+        if entries:
+            return entries
 
     catalog_file = Path(get_catalog_path(catalog_path))
     if catalog_path is None and object_storage.is_configured():
@@ -557,14 +587,10 @@ def read_stream_entries(catalog_path=None):
 
 
 def write_stream_entries(entries, catalog_path=None):
-    """Write catalog locally and mirror it to persistent object storage when configured."""
+    """Write catalog to MongoDB (primary) and local JSON file (backup)."""
     if catalog_path is None:
-        try:
-            from safe_repo.core.mongo.mongo_client import is_mongo_available, _run_async as _run
-            if is_mongo_available():
-                _run(_mongo_write_catalog(entries))
-        except Exception:
-            pass
+        _mongo_write_sync(entries)
+        logger.info(f"write_stream_entries: wrote {len(entries)} entries to MongoDB + JSON backup")
 
     catalog_file = Path(get_catalog_path(catalog_path))
     catalog_file.parent.mkdir(parents=True, exist_ok=True)

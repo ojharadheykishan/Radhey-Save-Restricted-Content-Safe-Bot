@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import concurrent.futures
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ def _build_client(async_mode: bool):
             from motor.motor_asyncio import AsyncIOMotorClient
             return AsyncIOMotorClient(
                 MONGO_DB,
-                serverSelectionTimeoutMS=3000,
+                serverSelectionTimeoutMS=5000,
                 maxPoolSize=10,
                 tls=True,
             )
@@ -28,7 +29,7 @@ def _build_client(async_mode: bool):
             from pymongo import MongoClient
             return MongoClient(
                 MONGO_DB,
-                serverSelectionTimeoutMS=3000,
+                serverSelectionTimeoutMS=5000,
                 maxPoolSize=10,
                 tls=True,
             )
@@ -60,9 +61,9 @@ def _db_name() -> str:
     return name.split("?")[0]
 
 
-def is_mongo_available() -> bool:
+def is_mongo_available(force=False) -> bool:
     global _mongo_available_cache
-    if _mongo_available_cache is not None:
+    if not force and _mongo_available_cache is not None:
         return _mongo_available_cache
     client = _sync_mongo_client()
     if client is None:
@@ -71,6 +72,7 @@ def is_mongo_available() -> bool:
     try:
         client.server_info()
         _mongo_available_cache = True
+        logger.info(f"MongoDB connected to {_db_name()}")
         return True
     except Exception as e:
         logger.warning(f"MongoDB not reachable, falling back to JSON: {e}")
@@ -87,33 +89,31 @@ def get_mongo_db():
 
 
 def get_async_db():
-    """Alias for get_mongo_db — async Motor database (web-side modules)."""
+    """Alias for get_mongo_db — async Motor database."""
     return get_mongo_db()
 
 
 def get_sync_db():
-    """Return sync pymongo database object."""
+    """Return sync pymongo database (used by sync functions like media_links.py)."""
     client = _sync_mongo_client()
     if client is None:
         return None
     return client[_db_name()]
 
 
-# Re-export for compatibility
-get_mongo_db = get_mongo_db
-
-
 def _run_async(coro):
-    """Run an awaitable from synchronous code (creates a new event loop if needed)."""
+    """Run an awaitable from synchronous code without conflicting with Motor."""
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        loop = asyncio.get_running_loop()
     except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+        loop = None
+
+    if loop and loop.is_running():
+        # We are inside a running event loop (e.g. Pyrogram async context).
+        # Run the coroutine in a separate thread with its own loop.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(asyncio.run, coro)
+            return future.result()
+    else:
+        # No running loop — safe to use asyncio.run directly
+        return asyncio.run(coro)
