@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from flask import request, session, redirect, render_template, abort, jsonify
 from safe_repo.web.study import load_catalog_entries
-from safe_repo.core.media_links import get_stream_cache_stats
+from safe_repo.core.media_links import get_stream_cache_stats, migrate_local_media_to_object_storage, read_stream_entries, write_stream_entries
+from safe_repo.core.object_storage import is_configured as object_storage_is_configured
 
 ADMIN_USERNAME = os.environ.get("STUDY_ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("STUDY_ADMIN_PASSWORD", "admin123")
@@ -21,13 +22,11 @@ def _get_catalog_path(catalog_path: Optional[str] = None) -> str:
 
 
 def _load_entries(catalog_path: Optional[str] = None) -> List[Dict[str, Any]]:
-    return load_catalog_entries(catalog_path)
+    return read_stream_entries(catalog_path)
 
 
 def _save_entries(entries: List[Dict[str, Any]], catalog_path: Optional[str] = None) -> None:
-    path = Path(_get_catalog_path(catalog_path))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_stream_entries(entries, catalog_path=catalog_path)
 
 
 def is_admin() -> bool:
@@ -89,7 +88,7 @@ def admin_dashboard_view():
         folders[folder] += 1
         completion_count += int(entry.get("completion_count") or 0)
     
-    return render_template('admin/dashboard.html', entries=entries, folders=folders, completion_count=completion_count, admin_role=session.get("admin_role", "owner"), cache_stats=get_stream_cache_stats())
+    return render_template('admin/dashboard.html', entries=entries, folders=folders, completion_count=completion_count, admin_role=session.get("admin_role", "owner"), cache_stats=get_stream_cache_stats(), object_storage_configured=object_storage_is_configured())
 
 
 def edit_entry_view(token):
@@ -243,3 +242,14 @@ def rename_folder_view():
 
     _save_entries(entries)
     return jsonify({"success": True, "updated": updated_count})
+
+
+def migrate_media_storage_view():
+    require_admin("owner")
+    try:
+        result = migrate_local_media_to_object_storage()
+    except RuntimeError as error:
+        return jsonify({"success": False, "error": str(error)}), 503
+    except Exception:
+        return jsonify({"success": False, "error": "Storage backup failed. Check the server logs and object-storage settings."}), 502
+    return jsonify({"success": True, **result})

@@ -23,7 +23,7 @@ from safe_repo.web.tags import (
 )
 from safe_repo.web.batch import create_batch_job, get_job_status, get_job_zip_path, cleanup_expired
 from safe_repo.web.stats import compute_stats, get_dashboard_data
-from safe_repo.core.media_links import get_catalog_path, read_stream_entries, get_stream_entry
+from safe_repo.core.media_links import read_stream_entries, get_stream_entry, write_stream_entries
 from safe_repo.web.users import add_watch_history, get_watch_history, record_video_completion
 from safe_repo.web.study import load_catalog_entries
 from safe_repo.web.notifications import save_push_subscription, remove_push_subscription
@@ -244,9 +244,7 @@ def api_video_view(token: str):
             updated = entry
             break
     if updated:
-        catalog_path = Path(get_catalog_path())
-        catalog_path.parent.mkdir(parents=True, exist_ok=True)
-        catalog_path.write_text(json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8")
+        write_stream_entries(entries)
 
     user_id = _get_current_user_id()
     if user_id:
@@ -290,7 +288,7 @@ def api_video_progress(token: str):
         for catalog_entry in entries:
             if str(catalog_entry.get("token")) == str(token):
                 catalog_entry["completion_count"] = int(catalog_entry.get("completion_count") or 0) + 1
-                Path(get_catalog_path()).write_text(json.dumps(entries, indent=2, ensure_ascii=False), encoding="utf-8")
+                write_stream_entries(entries)
                 break
     return jsonify({"success": True, "progress": progress, "tracked": True})
 

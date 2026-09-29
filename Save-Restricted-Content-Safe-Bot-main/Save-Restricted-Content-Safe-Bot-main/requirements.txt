@@ -18,3 +18,4 @@ email_validator
 pywebpush
 pytesseract
 Pillow
+boto3

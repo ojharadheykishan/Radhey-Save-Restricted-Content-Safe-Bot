@@ -296,6 +296,8 @@ async def build_public_stream_link(message, media_file=None, thumbnail_path=None
                     "thumbnail_url": saved.get("thumbnail_url"),
                     "content_hash": saved.get("content_hash"),
                     "pdf_text": saved.get("pdf_text"),
+                    "storage_key": saved.get("storage_key"),
+                    "thumbnail_storage_key": saved.get("thumbnail_storage_key"),
                 }
             else:
                 logger.warning(f"build_public_stream_link: save_stream_file returned None")
@@ -498,6 +500,8 @@ async def handle_direct_media(client, message):
                 media_type="pdf" if getattr(getattr(message, "document", None), "mime_type", "") == "application/pdf" else "video",
                 content_hash=public_link.get('content_hash'),
                 pdf_text=public_link.get('pdf_text'),
+                storage_key=public_link.get('storage_key'),
+                thumbnail_storage_key=public_link.get('thumbnail_storage_key'),
             )
             from safe_repo.web.notifications import notify_new_media
             await notify_new_media(metadata["title"], public_link["player_url"])

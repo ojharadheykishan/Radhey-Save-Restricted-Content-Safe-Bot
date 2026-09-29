@@ -2,6 +2,7 @@ import os
 import json
 import sys
 import tempfile
+import io
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,6 +13,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import safe_repo.core.media_links as media_links
+import safe_repo.core.object_storage as object_storage
 from safe_repo.core.media_links import save_stream_file, append_stream_link, read_stream_entries
 
 
@@ -191,6 +193,152 @@ def test_app_data_dir_does_not_overwrite_existing_approval_catalog(tmp_path, mon
 
     entries = media_links.read_stream_entries(str(persistent_catalog))
     assert entries == [{"token": "kept", "approved": True}]
+
+
+def test_object_storage_catalog_keeps_approvals_after_local_catalog_is_removed(tmp_path, monkeypatch):
+    class FakeS3:
+        objects = {}
+
+        def put_object(self, Bucket, Key, Body, ContentType):
+            self.objects[Key] = bytes(Body)
+
+        def get_object(self, Bucket, Key):
+            if Key not in self.objects:
+                raise FileNotFoundError(Key)
+            return {"Body": io.BytesIO(self.objects[Key])}
+
+        def get_object(self, Bucket, Key):
+            if Key not in self.objects:
+                raise FileNotFoundError(Key)
+            return {"Body": io.BytesIO(self.objects[Key])}
+
+    client = FakeS3()
+    monkeypatch.setenv("OBJECT_STORAGE_ENDPOINT", "https://account.r2.cloudflarestorage.com")
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "study-media")
+    monkeypatch.setenv("OBJECT_STORAGE_ACCESS_KEY_ID", "test-access")
+    monkeypatch.setenv("OBJECT_STORAGE_SECRET_ACCESS_KEY", "test-secret")
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(object_storage, "_get_client", lambda: (client, object_storage._configuration()))
+    catalog = [{"token": "approved-video", "approved": True}, {"token": "pending-pdf", "approved": False}]
+
+    media_links.write_stream_entries(catalog)
+    Path(media_links.get_catalog_path()).unlink()
+    restored = media_links.read_stream_entries()
+
+    assert restored == catalog
+    assert json.loads(client.objects["safe-repo/catalog/stream_catalog.json"]) == catalog
+
+
+def test_object_storage_uploads_media_and_thumbnail_objects(tmp_path, monkeypatch):
+    class FakeS3:
+        objects = {}
+
+        def upload_file(self, Filename, Bucket, Key, ExtraArgs):
+            self.objects[Key] = Path(Filename).read_bytes()
+
+        def put_object(self, Bucket, Key, Body, ContentType):
+            self.objects[Key] = bytes(Body)
+
+        def get_object(self, Bucket, Key):
+            if Key not in self.objects:
+                raise FileNotFoundError(Key)
+            return {"Body": io.BytesIO(self.objects[Key])}
+
+    client = FakeS3()
+    monkeypatch.setenv("OBJECT_STORAGE_ENDPOINT", "https://account.r2.cloudflarestorage.com")
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "study-media")
+    monkeypatch.setenv("OBJECT_STORAGE_ACCESS_KEY_ID", "test-access")
+    monkeypatch.setenv("OBJECT_STORAGE_SECRET_ACCESS_KEY", "test-secret")
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(object_storage, "_get_client", lambda: (client, object_storage._configuration()))
+    source = tmp_path / "lesson.pdf"
+    document = fitz.open()
+    document.new_page().insert_text((72, 72), "Lesson")
+    document.save(source)
+    document.close()
+    poster = tmp_path / "poster.jpg"
+    assert cv2.imwrite(str(poster), np.zeros((8, 8, 3), dtype=np.uint8))
+
+    saved = media_links.save_stream_file(str(source), cache_dir=str(tmp_path / "cache"), thumbnail_path=str(poster))
+    media_links.append_stream_link(
+        saved["player_url"], saved["stream_url"],
+        archive_path=str(tmp_path / "links.txt"),
+        token=saved["token"], storage_key=saved["storage_key"],
+        thumbnail_storage_key=saved["thumbnail_storage_key"], approved=False,
+    )
+
+    assert saved["storage_key"] in client.objects
+    assert saved["thumbnail_storage_key"] in client.objects
+    assert any(key.endswith("stream_catalog.json") for key in client.objects)
+
+
+def test_object_storage_restores_missing_stream_cache_file(tmp_path, monkeypatch):
+    class FakeS3:
+        objects = {"safe-repo/media/token_lesson.mp4": b"restored video"}
+
+        def get_object(self, Bucket, Key):
+            return {"Body": io.BytesIO(self.objects[Key])}
+
+        def put_object(self, Bucket, Key, Body, ContentType):
+            self.objects[Key] = bytes(Body)
+
+        def download_file(self, Bucket, Key, Filename):
+            Path(Filename).write_bytes(self.objects[Key])
+
+    client = FakeS3()
+    monkeypatch.setenv("OBJECT_STORAGE_ENDPOINT", "https://account.r2.cloudflarestorage.com")
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "study-media")
+    monkeypatch.setenv("OBJECT_STORAGE_ACCESS_KEY_ID", "test-access")
+    monkeypatch.setenv("OBJECT_STORAGE_SECRET_ACCESS_KEY", "test-secret")
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(object_storage, "_get_client", lambda: (client, object_storage._configuration()))
+    monkeypatch.setattr(media_links, "_get_cache_dir", lambda: str(tmp_path / "cache"))
+    media_links.write_stream_entries([{
+        "token": "token", "storage_key": "safe-repo/media/token_lesson.mp4", "approved": True,
+    }])
+
+    restored = media_links.get_stream_file("token")
+
+    assert Path(restored["file_path"]).read_bytes() == b"restored video"
+
+
+def test_object_storage_migration_uploads_available_legacy_media(tmp_path, monkeypatch):
+    class FakeS3:
+        objects = {}
+
+        def put_object(self, Bucket, Key, Body, ContentType):
+            self.objects[Key] = bytes(Body)
+
+        def get_object(self, Bucket, Key):
+            if Key not in self.objects:
+                raise FileNotFoundError(Key)
+            return {"Body": io.BytesIO(self.objects[Key])}
+
+        def upload_file(self, Filename, Bucket, Key, ExtraArgs):
+            self.objects[Key] = Path(Filename).read_bytes()
+
+    client = FakeS3()
+    monkeypatch.setenv("OBJECT_STORAGE_ENDPOINT", "https://account.r2.cloudflarestorage.com")
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "study-media")
+    monkeypatch.setenv("OBJECT_STORAGE_ACCESS_KEY_ID", "test-access")
+    monkeypatch.setenv("OBJECT_STORAGE_SECRET_ACCESS_KEY", "test-secret")
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(object_storage, "_get_client", lambda: (client, object_storage._configuration()))
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    (cache_dir / "legacy_video.mp4").write_bytes(b"legacy video")
+    (cache_dir / "legacy.thumb.jpg").write_bytes(b"legacy poster")
+    monkeypatch.setattr(media_links, "_get_cache_dir", lambda: str(cache_dir))
+    media_links.write_stream_entries([{"token": "legacy", "approved": True}])
+
+    result = media_links.migrate_local_media_to_object_storage()
+    entries = media_links.read_stream_entries()
+
+    assert result == {"uploaded": 1, "missing": 0, "total": 1}
+    assert client.objects["safe-repo/media/legacy_video.mp4"] == b"legacy video"
+    assert client.objects["safe-repo/thumbnails/legacy.thumb.jpg"] == b"legacy poster"
+    assert entries[0]["storage_key"] == "safe-repo/media/legacy_video.mp4"
+    assert entries[0]["thumbnail_storage_key"] == "safe-repo/thumbnails/legacy.thumb.jpg"
 
 
 def test_video_thumbnail_fallback_uses_frame_at_one_minute(tmp_path, monkeypatch):

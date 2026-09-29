@@ -364,6 +364,63 @@ def test_editor_role_cannot_delete_or_change_approval(tmp_path, monkeypatch):
     assert json.loads(catalog_path.read_text(encoding="utf-8"))[0]["folder"] == "Physics"
 
 
+def test_admin_approval_updates_persistent_object_store_catalog(tmp_path, monkeypatch):
+    import io
+    import safe_repo.core.object_storage as object_storage
+
+    class FakeS3:
+        objects = {}
+
+        def get_object(self, Bucket, Key):
+            if Key not in self.objects:
+                raise FileNotFoundError(Key)
+            return {"Body": io.BytesIO(self.objects[Key])}
+
+        def put_object(self, Bucket, Key, Body, ContentType):
+            self.objects[Key] = bytes(Body)
+
+    client = FakeS3()
+    monkeypatch.setenv("OBJECT_STORAGE_ENDPOINT", "https://account.r2.cloudflarestorage.com")
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "study-media")
+    monkeypatch.setenv("OBJECT_STORAGE_ACCESS_KEY_ID", "test-access")
+    monkeypatch.setenv("OBJECT_STORAGE_SECRET_ACCESS_KEY", "test-secret")
+    monkeypatch.setenv("APP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(object_storage, "_get_client", lambda: (client, object_storage._configuration()))
+    media_links.write_stream_entries([{"token": "pending-item", "approved": False}])
+    client_app = flask_app.test_client()
+    with client_app.session_transaction() as session:
+        session["is_admin"] = True
+        session["admin_role"] = "owner"
+
+    response = client_app.post("/api/admin/videos/bulk", json={
+        "action": "approve", "tokens": ["pending-item"],
+    })
+
+    assert response.status_code == 200
+    stored = json.loads(client.objects["safe-repo/catalog/stream_catalog.json"])
+    assert stored == [{"token": "pending-item", "approved": True}]
+
+
+def test_storage_migration_requires_owner_and_configured_bucket(monkeypatch):
+    for name in (
+        "OBJECT_STORAGE_ENDPOINT",
+        "OBJECT_STORAGE_BUCKET",
+        "OBJECT_STORAGE_ACCESS_KEY_ID",
+        "OBJECT_STORAGE_SECRET_ACCESS_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    client = flask_app.test_client()
+    forbidden = client.post("/api/admin/storage/migrate")
+    with client.session_transaction() as session:
+        session["is_admin"] = True
+        session["admin_role"] = "owner"
+
+    unconfigured = client.post("/api/admin/storage/migrate")
+
+    assert forbidden.status_code == 403
+    assert unconfigured.status_code == 503
+
+
 def test_editor_can_rename_folder_and_subfolder(tmp_path, monkeypatch):
     catalog_path = tmp_path / "catalog.json"
     catalog_path.write_text(json.dumps([

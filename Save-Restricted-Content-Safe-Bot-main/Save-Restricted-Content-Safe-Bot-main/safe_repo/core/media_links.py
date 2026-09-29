@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Optional, Dict, List
 from urllib.parse import urlparse, urlunparse
 
+from safe_repo.core import object_storage
+
 logger = logging.getLogger(__name__)
 _STREAM_CACHE_DIR = None
 _WARNED_UNMOUNTED_RAILWAY_DATA = False
@@ -203,7 +205,13 @@ def store_stream_thumbnail(token, source_path):
         if scale < 1:
             image = cv2.resize(image, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_AREA)
         target = Path(entry["file_path"]).parent / f"{token}.thumb.jpg"
-        return str(target) if cv2.imwrite(str(target), image, [cv2.IMWRITE_JPEG_QUALITY, 88]) else None
+        if not cv2.imwrite(str(target), image, [cv2.IMWRITE_JPEG_QUALITY, 88]):
+            return None
+        metadata = get_stream_entry(token) or {}
+        thumbnail_key = metadata.get("thumbnail_storage_key")
+        if thumbnail_key and object_storage.is_configured():
+            object_storage.upload_file(thumbnail_key, target, "image/jpeg")
+        return str(target)
     except Exception:
         return None
 
@@ -312,6 +320,16 @@ def save_stream_file(source_path, base_url=None, cache_dir=None, max_size_mb=Non
         target_path = cache_path / f"{token}_{safe_name}"
         shutil.copy2(source_path, target_path)
         stored_thumbnail = _store_stream_thumbnail(source_path, token, cache_path, thumbnail_path)
+        storage_key = None
+        thumbnail_storage_key = None
+        if object_storage.is_configured():
+            import mimetypes
+
+            storage_key = object_storage.object_key("media", f"{token}_{safe_name}")
+            object_storage.upload_file(storage_key, target_path, mimetypes.guess_type(safe_name)[0])
+            if stored_thumbnail:
+                thumbnail_storage_key = object_storage.object_key("thumbnails", f"{token}.thumb.jpg")
+                object_storage.upload_file(thumbnail_storage_key, stored_thumbnail, "image/jpeg")
         content_hash = get_file_sha256(source_path)
         pdf_text = extract_pdf_text(source_path)
 
@@ -323,6 +341,10 @@ def save_stream_file(source_path, base_url=None, cache_dir=None, max_size_mb=Non
             "player_url": f"{base_url}/player/{token}",
             "content_hash": content_hash,
         }
+        if storage_key:
+            result["storage_key"] = storage_key
+        if thumbnail_storage_key:
+            result["thumbnail_storage_key"] = thumbnail_storage_key
         if pdf_text:
             result["pdf_text"] = pdf_text
         if stored_thumbnail:
@@ -362,7 +384,7 @@ def get_catalog_path(catalog_path=None):
     return str(repo_dir / "stream_catalog.json")
 
 
-def append_stream_link(player_url, stream_url, label="stream", archive_path=None, catalog_path=None, subject=None, description=None, title=None, token=None, thumbnail_url=None, media_type="video", content_hash=None, pdf_text=None, transcript="", subtitles="", playlist="", sort_order=0, approved=True, folder=None, subfolder=None, category=None, media_date=None):
+def append_stream_link(player_url, stream_url, label="stream", archive_path=None, catalog_path=None, subject=None, description=None, title=None, token=None, thumbnail_url=None, media_type="video", content_hash=None, pdf_text=None, transcript="", subtitles="", playlist="", sort_order=0, approved=True, folder=None, subfolder=None, category=None, media_date=None, storage_key=None, thumbnail_storage_key=None):
     """Append a generated stream link to a text archive file and save structured metadata."""
     archive_file = Path(get_archive_path(archive_path))
     archive_file.parent.mkdir(parents=True, exist_ok=True)
@@ -371,10 +393,12 @@ def append_stream_link(player_url, stream_url, label="stream", archive_path=None
         handle.write(f"[{stamp}] {label}\n")
         handle.write(f"Player: {player_url}\n")
         handle.write(f"Stream: {stream_url}\n\n")
+    if catalog_path is None and object_storage.is_configured():
+        object_storage.upload_file(object_storage.object_key("catalog", "stream_links.txt"), archive_file, "text/plain; charset=utf-8")
 
     catalog_file = Path(get_catalog_path(catalog_path))
     catalog_file.parent.mkdir(parents=True, exist_ok=True)
-    entries = read_stream_entries(catalog_path=str(catalog_file))
+    entries = read_stream_entries(catalog_path=catalog_path)
 
     entry = {
         "timestamp": stamp,
@@ -390,6 +414,8 @@ def append_stream_link(player_url, stream_url, label="stream", archive_path=None
         "player_url": player_url,
         "stream_url": stream_url,
         "thumbnail_url": thumbnail_url or "",
+        "storage_key": storage_key or "",
+        "thumbnail_storage_key": thumbnail_storage_key or "",
         "media_type": media_type or "video",
         "content_hash": content_hash or "",
         "pdf_text": (pdf_text or "")[:200000],
@@ -400,8 +426,7 @@ def append_stream_link(player_url, stream_url, label="stream", archive_path=None
         "approved": bool(approved),
     }
     entries.append(entry)
-    with catalog_file.open("w", encoding="utf-8") as handle:
-        json.dump(entries, handle, indent=2, ensure_ascii=False)
+    write_stream_entries(entries, catalog_path=catalog_path)
 
     return str(archive_file)
 
@@ -409,20 +434,61 @@ def append_stream_link(player_url, stream_url, label="stream", archive_path=None
 def read_stream_entries(catalog_path=None):
     """Read structured stream-link entries from the catalog file."""
     catalog_file = Path(get_catalog_path(catalog_path))
+    if catalog_path is None and object_storage.is_configured():
+        key = object_storage.object_key("catalog", "stream_catalog.json")
+        remote_data = object_storage.get_bytes(key)
+        if remote_data is not None:
+            catalog_file.parent.mkdir(parents=True, exist_ok=True)
+            catalog_file.write_bytes(remote_data)
+            try:
+                data = json.loads(remote_data.decode("utf-8"))
+                return data if isinstance(data, list) else []
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                logger.error("Object storage catalog is not valid JSON: %s", key)
+                return []
+
     if not catalog_file.exists():
         return []
     try:
         data = json.loads(catalog_file.read_text(encoding="utf-8"))
         if isinstance(data, list):
+            if catalog_path is None and object_storage.is_configured():
+                object_storage.put_bytes(
+                    object_storage.object_key("catalog", "stream_catalog.json"),
+                    json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8"),
+                    "application/json",
+                )
             return data
     except Exception:
         pass
     return []
 
 
+def write_stream_entries(entries, catalog_path=None):
+    """Write catalog locally and mirror it to persistent object storage when configured."""
+    catalog_file = Path(get_catalog_path(catalog_path))
+    catalog_file.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(entries, indent=2, ensure_ascii=False).encode("utf-8")
+    if catalog_path is None and object_storage.is_configured():
+        object_storage.put_bytes(object_storage.object_key("catalog", "stream_catalog.json"), payload, "application/json")
+    temporary_file = catalog_file.with_suffix(catalog_file.suffix + ".tmp")
+    temporary_file.write_bytes(payload)
+    temporary_file.replace(catalog_file)
+    return str(catalog_file)
+
+
 def read_stream_links(archive_path=None):
     """Read the text archive of generated stream links."""
     archive_file = Path(get_archive_path(archive_path))
+    if archive_path is None and object_storage.is_configured():
+        key = object_storage.object_key("catalog", "stream_links.txt")
+        remote_data = object_storage.get_bytes(key)
+        if remote_data is not None:
+            archive_file.parent.mkdir(parents=True, exist_ok=True)
+            archive_file.write_bytes(remote_data)
+            return remote_data.decode("utf-8")
+        if archive_file.is_file():
+            object_storage.upload_file(key, archive_file, "text/plain; charset=utf-8")
     if not archive_file.exists():
         return ""
     return archive_file.read_text(encoding="utf-8")
@@ -440,7 +506,62 @@ def get_stream_file(token):
         if path.is_file():
             return {"token": token, "file_path": str(path)}
 
+    entry = get_stream_entry(token)
+    storage_key = (entry or {}).get("storage_key")
+    if storage_key and object_storage.is_configured():
+        filename = Path(storage_key).name
+        path = cache_dir / filename
+        try:
+            if object_storage.download_file(storage_key, path):
+                return {"token": token, "file_path": str(path), "storage_key": storage_key}
+        except Exception:
+            logger.exception("Failed to restore media object %s", storage_key)
+
     return None
+
+
+def migrate_local_media_to_object_storage():
+    """Back up cached media/thumbnail files that still exist in local storage."""
+    if not object_storage.is_configured():
+        raise RuntimeError("Configure all OBJECT_STORAGE_* settings before running a media backup")
+
+    cache_dir = Path(_get_cache_dir())
+    entries = read_stream_entries()
+    uploaded = 0
+    missing = 0
+    changed = False
+    for entry in entries:
+        token = str(entry.get("token") or "").strip()
+        if not token:
+            continue
+        media_path = next((path for path in cache_dir.glob(f"{token}_*") if path.is_file()), None)
+        if not media_path:
+            if not entry.get("storage_key"):
+                missing += 1
+            continue
+
+        if not entry.get("storage_key"):
+            media_key = object_storage.object_key("media", media_path.name)
+            import mimetypes
+
+            object_storage.upload_file(media_key, media_path, mimetypes.guess_type(media_path.name)[0])
+            entry["storage_key"] = media_key
+            uploaded += 1
+            changed = True
+
+        thumbnail_path = cache_dir / f"{token}.thumb.jpg"
+        if thumbnail_path.is_file() and not entry.get("thumbnail_storage_key"):
+            thumbnail_key = object_storage.object_key("thumbnails", thumbnail_path.name)
+            object_storage.upload_file(thumbnail_key, thumbnail_path, "image/jpeg")
+            entry["thumbnail_storage_key"] = thumbnail_key
+            changed = True
+
+    if changed:
+        write_stream_entries(entries)
+    archive_path = Path(get_archive_path())
+    if archive_path.is_file():
+        object_storage.upload_file(object_storage.object_key("catalog", "stream_links.txt"), archive_path, "text/plain; charset=utf-8")
+    return {"uploaded": uploaded, "missing": missing, "total": len(entries)}
 
 
 def get_stream_entry(token, catalog_path=None):
@@ -463,6 +584,14 @@ def get_stream_thumbnail(token):
     thumbnail_path = cache_path / f"{token}.thumb.jpg"
     if thumbnail_path.is_file():
         return str(thumbnail_path)
+    entry_meta = get_stream_entry(token)
+    thumbnail_key = (entry_meta or {}).get("thumbnail_storage_key")
+    if thumbnail_key and object_storage.is_configured():
+        try:
+            if object_storage.download_file(thumbnail_key, thumbnail_path):
+                return str(thumbnail_path)
+        except Exception:
+            logger.exception("Failed to restore thumbnail object %s", thumbnail_key)
     if _create_media_thumbnail(entry["file_path"], thumbnail_path):
         return str(thumbnail_path)
     return None
@@ -511,14 +640,14 @@ def cleanup_old_catalog_entries(max_age_hours=None, catalog_path=None):
         max_age_hours = _CLEANUP_MAX_AGE_HOURS
 
     catalog_file = Path(get_catalog_path(catalog_path))
-    if not catalog_file.exists():
+    if catalog_path is not None and not catalog_file.exists():
         return 0
 
     cutoff = dt.now() - timedelta(hours=max_age_hours)
     cutoff_str = cutoff.strftime("%Y-%m-%d %H:%M:%S")
 
     try:
-        entries = read_stream_entries(catalog_path=str(catalog_file))
+        entries = read_stream_entries(catalog_path=catalog_path)
         original_count = len(entries)
         filtered = []
         for entry in entries:
@@ -531,10 +660,7 @@ def cleanup_old_catalog_entries(max_age_hours=None, catalog_path=None):
                 filtered.append(entry)
 
         if len(filtered) < original_count:
-            catalog_file.write_text(
-                json.dumps(filtered, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            write_stream_entries(filtered, catalog_path=catalog_path)
             logger.info(f"Pruned {original_count - len(filtered)} old catalog entries (older than {max_age_hours}h)")
             return original_count - len(filtered)
     except Exception as e:

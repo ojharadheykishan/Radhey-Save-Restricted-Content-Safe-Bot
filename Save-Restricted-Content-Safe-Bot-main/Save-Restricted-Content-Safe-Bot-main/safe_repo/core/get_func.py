@@ -161,6 +161,8 @@ def _publish_batch_media_to_site(media_file, thumbnail_path, source_message, med
         subfolder=subfolder,
         approved=False,
         media_date=media_date,
+        storage_key=saved.get("storage_key"),
+        thumbnail_storage_key=saved.get("thumbnail_storage_key"),
     )
     return saved
 

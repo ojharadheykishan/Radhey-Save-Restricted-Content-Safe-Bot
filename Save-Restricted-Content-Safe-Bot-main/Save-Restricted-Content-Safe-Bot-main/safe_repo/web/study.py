@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
+from safe_repo.core.media_links import read_stream_entries
 
 
 def _get_catalog_path(catalog_path: Optional[str] = None) -> str:
@@ -17,18 +18,7 @@ def _get_catalog_path(catalog_path: Optional[str] = None) -> str:
 
 
 def _read_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, Any]]:
-    path = Path(_get_catalog_path(catalog_path))
-    if not path.exists():
-        return []
-
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-
-    if isinstance(data, list):
-        return [entry for entry in data if isinstance(entry, dict)]
-    return []
+    return [entry for entry in read_stream_entries(catalog_path) if isinstance(entry, dict)]
 
 
 def _build_watch_url(token: str) -> str:

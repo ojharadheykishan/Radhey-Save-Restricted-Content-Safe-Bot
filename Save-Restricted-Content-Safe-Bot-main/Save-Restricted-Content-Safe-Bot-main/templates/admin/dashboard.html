@@ -262,6 +262,7 @@
                 <button type="button" onclick="renameCatalogName('folder')" class="rounded-xl bg-cyan/10 px-4 py-3 text-sm font-medium text-cyan hover:bg-cyan/20">Rename folder</button>
                 <button type="button" onclick="renameCatalogName('subfolder')" class="rounded-xl bg-teal-500/10 px-4 py-3 text-sm font-medium text-teal-200 hover:bg-teal-500/20">Rename subfolder</button>
                 {% endif %}
+                {% if admin_role == 'owner' and object_storage_configured %}<button id="backup-media-storage" type="button" onclick="backupExistingMedia()" class="rounded-xl bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-200 hover:bg-emerald-500/20"><i class="fas fa-cloud-arrow-up mr-2"></i>Back up existing media</button>{% endif %}
                 <button id="export-media" type="button" class="rounded-xl bg-amber-400/10 px-4 py-3 text-sm font-medium text-amber-200 hover:bg-amber-400/20"><i class="fas fa-download mr-2"></i>Export CSV</button>
                 <span id="media-result-count" class="text-sm text-slate-400">{{ entries|length }} items</span>
             </div>
@@ -581,6 +582,22 @@
             window.location.reload();
         } catch (error) {
             showToast(error.message || 'Rename failed', 'error');
+        }
+    }
+
+    async function backupExistingMedia() {
+        if (!confirm('Upload all locally available catalog videos, PDFs and thumbnails to the configured private object-storage bucket?')) return;
+        const button = document.getElementById('backup-media-storage');
+        button.disabled = true;
+        try {
+            const response = await fetch('/api/admin/storage/migrate', { method: 'POST' });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.error || 'Media backup failed');
+            showToast(`Backed up ${result.uploaded} items; ${result.missing} files were not present in the local cache.`, result.missing ? 'info' : 'success');
+        } catch (error) {
+            showToast(error.message || 'Media backup failed', 'error');
+        } finally {
+            button.disabled = false;
         }
     }
 
