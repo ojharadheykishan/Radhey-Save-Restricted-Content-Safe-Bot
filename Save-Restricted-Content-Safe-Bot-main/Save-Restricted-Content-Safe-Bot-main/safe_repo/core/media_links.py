@@ -431,6 +431,18 @@ def append_stream_link(player_url, stream_url, label="stream", archive_path=None
     return str(archive_file)
 
 
+def _sanitize_for_json(obj):
+    """Recursively convert ObjectId and other non-serializable values to strings."""
+    import bson
+    if isinstance(obj, bson.ObjectId):
+        return str(obj)
+    if isinstance(obj, dict):
+        return {key: _sanitize_for_json(val) for key, val in obj.items() if key != "_id" or str(key) != "_id"}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(item) for item in obj]
+    return obj
+
+
 def _mongo_catalog_coll():
     try:
         from safe_repo.core.mongo.mongo_client import get_mongo_db, is_mongo_available
@@ -452,7 +464,7 @@ async def read_stream_entries_async(catalog_path=None):
         entries = []
         for doc in docs:
             doc.pop("_id", None)
-            entries.append(doc)
+            entries.append(_sanitize_for_json(doc))
         if entries:
             return entries
 
@@ -464,12 +476,13 @@ async def _mongo_write_catalog(entries):
     coll = _mongo_catalog_coll()
     if coll is None:
         return
+    sanitized = _sanitize_for_json(entries)
     await coll.delete_many({})
-    if entries:
+    if sanitized:
         try:
-            await coll.insert_many(entries, ordered=False)
+            await coll.insert_many(sanitized, ordered=False)
         except Exception:
-            for entry in entries:
+            for entry in sanitized:
                 try:
                     await coll.insert_one(entry)
                 except Exception:
@@ -480,12 +493,13 @@ async def write_stream_entries_async(entries, catalog_path=None):
     """Write catalog entries to MongoDB (primary) and local JSON (backup)."""
     coll = _mongo_catalog_coll()
     if coll is not None:
+        sanitized = _sanitize_for_json(entries)
         await coll.delete_many({})
-        if entries:
+        if sanitized:
             try:
-                await coll.insert_many(entries, ordered=False)
+                await coll.insert_many(sanitized, ordered=False)
             except Exception:
-                for entry in entries:
+                for entry in sanitized:
                     try:
                         await coll.insert_one(entry)
                     except Exception:
