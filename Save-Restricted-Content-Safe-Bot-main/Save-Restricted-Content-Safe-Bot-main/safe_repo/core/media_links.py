@@ -447,7 +447,7 @@ def _mongo_catalog_coll():
     """Return sync pymongo collection (works from both sync and async contexts)."""
     try:
         from safe_repo.core.mongo.mongo_client import get_sync_db, is_mongo_available
-        if not is_mongo_available():
+        if not is_mongo_available(force=True):
             return None
         db = get_sync_db()
         if db is None:
@@ -463,7 +463,7 @@ async def read_stream_entries_async(catalog_path=None):
     if catalog_path is None:
         try:
             from safe_repo.core.mongo.mongo_client import get_mongo_db, is_mongo_available
-            if is_mongo_available():
+            if is_mongo_available(force=True):
                 db = get_mongo_db()
                 if db is not None:
                     coll = db["stream_catalog"]
@@ -484,7 +484,7 @@ async def _mongo_write_catalog(entries):
     """Async: Write all catalog entries to MongoDB."""
     try:
         from safe_repo.core.mongo.mongo_client import get_mongo_db, is_mongo_available
-        if not is_mongo_available():
+        if not is_mongo_available(force=True):
             return
         db = get_mongo_db()
         if db is None:
@@ -502,7 +502,7 @@ async def _mongo_write_catalog(entries):
                     except Exception:
                         pass
     except Exception as e:
-        logger.debug(f"MongoDB async write failed: {e}")
+        logger.warning(f"MongoDB async write failed: {e}")
 
 
 async def write_stream_entries_async(entries, catalog_path=None):
@@ -531,20 +531,24 @@ def _mongo_write_sync(entries):
     """Sync: Write entries to MongoDB using sync pymongo."""
     coll = _mongo_catalog_coll()
     if coll is None:
+        logger.info(f"MongoDB not available, skipping write ({len(entries)} entries)")
         return False
     try:
         sanitized = _sanitize_for_json(entries)
         coll.delete_many({})
         if sanitized:
             coll.insert_many(sanitized, ordered=False)
+        logger.info(f"MongoDB write succeeded: {len(sanitized)} entries in stream_catalog")
         return True
     except Exception as e:
-        logger.debug(f"MongoDB sync write failed: {e}")
+        logger.warning(f"MongoDB sync write failed: {e}")
         try:
             for entry in _sanitize_for_json(entries):
                 coll.insert_one(entry)
+            logger.info(f"MongoDB write retry succeeded: {len(entries)} entries")
             return True
-        except Exception:
+        except Exception as e2:
+            logger.error(f"MongoDB write retry failed: {e2}")
             return False
 
 
