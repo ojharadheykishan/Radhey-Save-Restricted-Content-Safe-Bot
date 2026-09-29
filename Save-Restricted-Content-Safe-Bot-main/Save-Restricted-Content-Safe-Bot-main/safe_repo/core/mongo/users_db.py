@@ -35,6 +35,14 @@ async def get_users():
     return data.get("users", [])
 
 
+async def get_user(user):
+    """Return the user_id if it exists in the users list, else None."""
+    users = await get_users()
+    if user in users:
+        return user
+    return None
+
+
 async def _sync_to_json(users):
     data = {"users": users}
     await asyncio.to_thread(_write, data)
