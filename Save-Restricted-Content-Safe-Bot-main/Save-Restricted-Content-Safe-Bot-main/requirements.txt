@@ -4,6 +4,7 @@ pyromod
 opencv-python-headless
 requests
 motor
+pymongo
 pytz
 flask
 gunicorn

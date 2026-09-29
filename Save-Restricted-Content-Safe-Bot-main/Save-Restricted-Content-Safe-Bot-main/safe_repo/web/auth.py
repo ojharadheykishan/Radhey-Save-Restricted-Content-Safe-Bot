@@ -1,13 +1,13 @@
 import os
 import json
-import secrets
-import string
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Optional, Dict, Any
+import asyncio
+from datetime import datetime, timezone, timedelta
+from typing import Dict, Any, List, Optional
 
-from flask import request, session, redirect, render_template_string, abort, flash
+from safe_repo.core.mongo.mongo_client import get_async_db, is_mongo_available
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask import request, session, redirect, render_template_string, abort
+from pathlib import Path
 
 AUTH_FILE = Path(__file__).resolve().parent.parent / "core" / "mongo" / "users_auth.json"
 RESET_TOKENS_FILE = Path(__file__).resolve().parent.parent / "core" / "mongo" / "reset_tokens.json"
@@ -33,14 +33,14 @@ def _write_json(path: Path, data) -> None:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-def _load_users() -> Dict[str, Any]:
+def _load_users_json() -> Dict[str, Any]:
     data = _read_json(AUTH_FILE, {"users": {}})
     if "users" not in data:
         data["users"] = {}
     return data
 
 
-def _save_users(data: Dict[str, Any]) -> None:
+def _save_users_json(data: Dict[str, Any]) -> None:
     _write_json(AUTH_FILE, data)
 
 
@@ -52,6 +52,13 @@ def _save_reset_tokens(data: Dict[str, Any]) -> None:
     _write_json(RESET_TOKENS_FILE, data)
 
 
+def _mongo_users_coll():
+    db = get_async_db()
+    if db is None:
+        return None
+    return db["auth_users"]
+
+
 def generate_password_hash_func(password: str) -> str:
     return generate_password_hash(password)
 
@@ -60,85 +67,173 @@ def verify_password_hash_func(password_hash: str, password: str) -> bool:
     return check_password_hash(password_hash, password)
 
 
-def create_user(username: str, email: str, password: str, is_admin: bool = False) -> Optional[Dict[str, Any]]:
-    data = _load_users()
-    users = data["users"]
-
-    if any(u.get("username") == username for u in users.values()):
-        return None
-    if any(u.get("email") == email for u in users.values()):
-        return None
-
-    user_id = secrets.token_hex(8)
-    users[user_id] = {
-        "id": user_id,
+async def create_user(username: str, email: str, password: str, is_admin: bool = False) -> Optional[Dict[str, Any]]:
+    import secrets
+    user = {
+        "id": secrets.token_hex(8),
         "username": username,
         "email": email,
         "password_hash": generate_password_hash_func(password),
         "created_at": datetime.utcnow().isoformat(),
         "is_admin": is_admin,
     }
-    _save_users(data)
-    return users[user_id]
+
+    # ---- JSON ----
+    data = _load_users_json()
+    users = data["users"]
+    if any(u.get("username") == username for u in users.values()):
+        return None
+    if any(u.get("email") == email for u in users.values()):
+        return None
+    users[user["id"]] = user
+    _save_users_json(data)
+
+    # ---- MongoDB ----
+    if is_mongo_available():
+        coll = _mongo_users_coll()
+        if coll is not None:
+            existing = await coll.find_one({"$or": [{"username": username}, {"email": email}]})
+            if existing:
+                return None
+            await coll.insert_one(user)
+
+    return user
 
 
-def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
-    data = _load_users()
-    for user in data["users"].values():
-        if user.get("username") == username:
-            if verify_password_hash_func(user.get("password_hash", ""), password):
-                return user
+async def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
+    # ---- MongoDB ----
+    if is_mongo_available():
+        coll = _mongo_users_coll()
+        if coll is not None:
+            user = await coll.find_one({"username": username})
+            if user:
+                if verify_password_hash_func(user.get("password_hash", ""), password):
+                    return user
+            return None
+
+    # ---- JSON ----
+    data = _load_users_json()
+    for u in data["users"].values():
+        if u.get("username") == username:
+            if verify_password_hash_func(u.get("password_hash", ""), password):
+                return u
     return None
 
 
-def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
-    data = _load_users()
+async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+    # ---- MongoDB ----
+    if is_mongo_available():
+        coll = _mongo_users_coll()
+        if coll is not None:
+            user = await coll.find_one({"id": user_id})
+            if user:
+                return user
+
+    # ---- JSON ----
+    data = _load_users_json()
     return data["users"].get(user_id)
 
 
-def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
-    data = _load_users()
-    for user in data["users"].values():
-        if user.get("username") == username:
-            return user
+async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
+    # ---- MongoDB ----
+    if is_mongo_available():
+        coll = _mongo_users_coll()
+        if coll is not None:
+            user = await coll.find_one({"username": username})
+            if user:
+                return user
+
+    # ---- JSON ----
+    data = _load_users_json()
+    for u in data["users"].values():
+        if u.get("username") == username:
+            return u
     return None
 
 
-def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
-    data = _load_users()
-    for user in data["users"].values():
-        if user.get("email") == email:
-            return user
+async def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    # ---- MongoDB ----
+    if is_mongo_available():
+        coll = _mongo_users_coll()
+        if coll is not None:
+            user = await coll.find_one({"email": email})
+            if user:
+                return user
+
+    # ---- JSON ----
+    data = _load_users_json()
+    for u in data["users"].values():
+        if u.get("email") == email:
+            return u
     return None
 
 
-def update_user_password(user_id: str, new_password: str) -> bool:
-    data = _load_users()
+async def update_user_password(user_id: str, new_password: str) -> bool:
+    # ---- JSON ----
+    data = _load_users_json()
     user = data["users"].get(user_id)
     if not user:
         return False
     user["password_hash"] = generate_password_hash_func(new_password)
-    _save_users(data)
+    _save_users_json(data)
+
+    # ---- MongoDB ----
+    if is_mongo_available():
+        coll = _mongo_users_coll()
+        if coll is not None:
+            await coll.update_one(
+                {"id": user_id},
+                {"$set": {"password_hash": user["password_hash"]}},
+            )
     return True
 
 
-def generate_reset_token(email: str) -> Optional[str]:
-    user = get_user_by_email(email)
+async def generate_reset_token(email: str) -> Optional[str]:
+    import secrets
+    user = await get_user_by_email(email)
     if not user:
         return None
     token = secrets.token_urlsafe(32)
-    token_data = _load_reset_tokens()
-    token_data["tokens"][token] = {
+    token_entry = {
         "user_id": user["id"],
         "email": email,
         "created_at": datetime.utcnow().isoformat(),
         "expires_at": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
     }
+
+    # ---- JSON ----
+    token_data = _load_reset_tokens()
+    token_data["tokens"][token] = token_entry
     _save_reset_tokens(token_data)
+
+    # ---- MongoDB ----
+    if is_mongo_available():
+        db = get_async_db()
+        if db is not None:
+            await db["reset_tokens"].update_one(
+                {"token": token},
+                {"$set": {"token": token, **token_entry}},
+                upsert=True,
+            )
+
     return token
 
 
-def verify_reset_token(token: str) -> Optional[Dict[str, Any]]:
+async def verify_reset_token(token: str) -> Optional[Dict[str, Any]]:
+    # ---- MongoDB ----
+    if is_mongo_available():
+        db = get_async_db()
+        if db is not None:
+            entry = await db["reset_tokens"].find_one({"token": token})
+            if not entry:
+                return None
+            expires_at = datetime.fromisoformat(entry["expires_at"])
+            if datetime.utcnow() > expires_at:
+                await db["reset_tokens"].delete_one({"token": token})
+                return None
+            return entry
+
+    # ---- JSON ----
     token_data = _load_reset_tokens()
     entry = token_data["tokens"].get(token)
     if not entry:
@@ -151,14 +246,81 @@ def verify_reset_token(token: str) -> Optional[Dict[str, Any]]:
     return entry
 
 
-def consume_reset_token(token: str) -> Optional[str]:
-    entry = verify_reset_token(token)
+async def consume_reset_token(token: str) -> Optional[str]:
+    entry = await verify_reset_token(token)
     if not entry:
         return None
+
+    # ---- JSON ----
     token_data = _load_reset_tokens()
-    del token_data["tokens"][token]
+    token_data["tokens"].pop(token, None)
     _save_reset_tokens(token_data)
+
+    # ---- MongoDB ----
+    if is_mongo_available():
+        db = get_async_db()
+        if db is not None:
+            await db["reset_tokens"].delete_one({"token": token})
+
     return entry["user_id"]
+
+
+# --- Synchronous wrappers for Flask routes (run in event loop) ---
+def _run_async(coro):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
+
+
+def create_user_sync(username, email, password, is_admin=False):
+    return _run_async(create_user(username, email, password, is_admin))
+
+
+def authenticate_user_sync(username, password):
+    return _run_async(authenticate_user(username, password))
+
+
+def get_user_by_id_sync(user_id):
+    return _run_async(get_user_by_id(user_id))
+
+
+def get_user_by_username_sync(username):
+    return _run_async(get_user_by_username(username))
+
+
+def get_user_by_email_sync(email):
+    return _run_async(get_user_by_email(email))
+
+
+def update_user_password_sync(user_id, new_password):
+    return _run_async(update_user_password(user_id, new_password))
+
+
+def generate_reset_token_sync(email):
+    return _run_async(generate_reset_token(email))
+
+
+def verify_reset_token_sync(token):
+    return _run_async(verify_reset_token(token))
+
+
+def consume_reset_token_sync(token):
+    return _run_async(consume_reset_token(token))
+
+
+# --- Keep old sync names as aliases ---
+create_user = create_user_sync
+authenticate_user = authenticate_user_sync
+get_user_by_id = get_user_by_id_sync
+get_user_by_username = get_user_by_username_sync
+get_user_by_email = get_user_by_email_sync
+update_user_password = update_user_password_sync
+generate_reset_token = generate_reset_token_sync
+verify_reset_token = verify_reset_token_sync
+consume_reset_token = consume_reset_token_sync
 
 
 def login_required(func):
@@ -215,7 +377,7 @@ def register_view():
         if errors:
             return render_template_string(REGISTER_TEMPLATE, errors=errors, username=username, email=email)
 
-        user = create_user(username, email, password)
+        user = create_user_sync(username, email, password)
         if not user:
             error = "Username or email already exists."
             return render_template_string(REGISTER_TEMPLATE, errors=[error], username=username, email=email)
@@ -232,14 +394,10 @@ def login_view():
         password = (request.form.get("password") or "").strip()
         remember = request.form.get("remember") == "on"
 
-        user = authenticate_user(username, password)
+        user = authenticate_user_sync(username, password)
         if user:
             session["user_id"] = user["id"]
             session.permanent = True
-            if remember:
-                app_config = {"remember_me": True}
-            else:
-                app_config = {}
             return redirect("/auth/profile")
         error = "Invalid username or password."
         return render_template_string(LOGIN_TEMPLATE, error=error, username=username)
@@ -258,10 +416,10 @@ def forgot_password_view():
         email = (request.form.get("email") or "").strip()
         if not email:
             return render_template_string(FORGOT_PASSWORD_TEMPLATE, error="Email is required.", success=None)
-        user = get_user_by_email(email)
+        user = get_user_by_email_sync(email)
         if not user:
             return render_template_string(FORGOT_PASSWORD_TEMPLATE, error="No account found with that email.", success=None)
-        token = generate_reset_token(email)
+        token = generate_reset_token_sync(email)
         if not token:
             return render_template_string(FORGOT_PASSWORD_TEMPLATE, error="Unable to generate reset token.", success=None)
         reset_link = request.url_root.rstrip("/") + f"/auth/reset-password/{token}"
@@ -270,7 +428,7 @@ def forgot_password_view():
 
 
 def reset_password_view(token: str):
-    user_id = consume_reset_token(token)
+    user_id = consume_reset_token_sync(token)
     if not user_id:
         return render_template_string(RESET_PASSWORD_TEMPLATE, error="Invalid or expired reset token.", token=token)
     if request.method == "POST":
@@ -280,7 +438,7 @@ def reset_password_view(token: str):
             return render_template_string(RESET_PASSWORD_TEMPLATE, error="Password must be at least 6 characters.", token=token)
         if password != confirm_password:
             return render_template_string(RESET_PASSWORD_TEMPLATE, error="Passwords do not match.", token=token)
-        update_user_password(user_id, password)
+        update_user_password_sync(user_id, password)
         return redirect("/auth/login")
     return render_template_string(RESET_PASSWORD_TEMPLATE, error=None, token=token)
 
@@ -523,6 +681,18 @@ REGISTER_TEMPLATE = """
         .error-message.show {
             display: block;
         }
+        .success-message {
+            color: #86efac;
+            font-size: 13px;
+            margin-bottom: 16px;
+            padding: 10px 12px;
+            background: rgba(22, 163, 74, 0.1);
+            border-radius: 6px;
+            display: none;
+        }
+        .success-message.show {
+            display: block;
+        }
         button {
             width: 100%;
             padding: 12px;
@@ -543,7 +713,6 @@ REGISTER_TEMPLATE = """
             text-align: center;
             margin-top: 16px;
             font-size: 14px;
-            color: #94a3b8;
         }
         .links a {
             color: #93c5fd;
@@ -666,6 +835,9 @@ FORGOT_PASSWORD_TEMPLATE = """
             border-color: #2563eb;
             background: rgba(30, 41, 59, 0.8);
         }
+        .form-group input::placeholder {
+            color: #64748b;
+        }
         .error-message {
             color: #fca5a5;
             font-size: 13px;
@@ -710,7 +882,6 @@ FORGOT_PASSWORD_TEMPLATE = """
             text-align: center;
             margin-top: 16px;
             font-size: 14px;
-            color: #94a3b8;
         }
         .links a {
             color: #93c5fd;
@@ -816,6 +987,9 @@ RESET_PASSWORD_TEMPLATE = """
             border-color: #2563eb;
             background: rgba(30, 41, 59, 0.8);
         }
+        .form-group input::placeholder {
+            color: #64748b;
+        }
         .error-message {
             color: #fca5a5;
             font-size: 13px;
@@ -848,7 +1022,6 @@ RESET_PASSWORD_TEMPLATE = """
             text-align: center;
             margin-top: 16px;
             font-size: 14px;
-            color: #94a3b8;
         }
         .links a {
             color: #93c5fd;

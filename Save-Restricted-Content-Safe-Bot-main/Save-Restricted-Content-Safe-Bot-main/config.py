@@ -17,5 +17,7 @@ STREAM_CHANNEL_USERNAME = "Link09660"
 # Owner(s) of the bot. Keep as a list for filters.user compatibility.
 OWNER_ID = [8552899459]
 
-# MongoDB removed from this codebase; keep MONGO_DB for backwards compatibility
-MONGO_DB = ""
+# MongoDB connection string (optional). When set, the app uses MongoDB as primary
+# storage with JSON files as automatic fallback. Set via env var MONGO_DB.
+# NOTE: For production (Railway), set MONGO_DB env var instead of hardcoding.
+MONGO_DB = os.environ.get("MONGO_DB") or "mongodb+srv://ojharadheykishan_db_user:0BIemOMHsvSCyapR@cluster0.id6fa6s.mongodb.net/safe_repo?retryWrites=true&w=majority"

@@ -431,8 +431,86 @@ def append_stream_link(player_url, stream_url, label="stream", archive_path=None
     return str(archive_file)
 
 
+def _mongo_catalog_coll():
+    try:
+        from safe_repo.core.mongo.mongo_client import get_mongo_db, is_mongo_available
+        if not is_mongo_available():
+            return None
+        db = get_mongo_db()
+        if db is None:
+            return None
+        return db["stream_catalog"]
+    except Exception:
+        return None
+
+
+async def read_stream_entries_async(catalog_path=None):
+    """Read structured stream-link entries from MongoDB (primary) or catalog file."""
+    coll = _mongo_catalog_coll()
+    if coll is not None:
+        docs = await coll.find({}).sort("timestamp", -1).to_list(length=100000)
+        entries = []
+        for doc in docs:
+            doc.pop("_id", None)
+            entries.append(doc)
+        if entries:
+            return entries
+
+    return read_stream_entries(catalog_path)
+
+
+async def _mongo_write_catalog(entries):
+    """Write all catalog entries to MongoDB, replacing existing documents."""
+    coll = _mongo_catalog_coll()
+    if coll is None:
+        return
+    await coll.delete_many({})
+    if entries:
+        try:
+            await coll.insert_many(entries, ordered=False)
+        except Exception:
+            for entry in entries:
+                try:
+                    await coll.insert_one(entry)
+                except Exception:
+                    pass
+
+
+async def write_stream_entries_async(entries, catalog_path=None):
+    """Write catalog entries to MongoDB (primary) and local JSON (backup)."""
+    coll = _mongo_catalog_coll()
+    if coll is not None:
+        await coll.delete_many({})
+        if entries:
+            try:
+                await coll.insert_many(entries, ordered=False)
+            except Exception:
+                for entry in entries:
+                    try:
+                        await coll.insert_one(entry)
+                    except Exception:
+                        pass
+
+    write_stream_entries(entries, catalog_path=catalog_path)
+
+
 def read_stream_entries(catalog_path=None):
-    """Read structured stream-link entries from the catalog file."""
+    """Read structured stream-link entries from MongoDB (primary) or catalog file."""
+    if catalog_path is None:
+        coll = _mongo_catalog_coll()
+        if coll is not None:
+            try:
+                from safe_repo.core.mongo.mongo_client import _run_async as _run
+                docs = _run(coll.find({}).sort("timestamp", -1).to_list(length=100000))
+                entries = []
+                for doc in docs:
+                    doc.pop("_id", None)
+                    entries.append(doc)
+                if entries:
+                    return entries
+            except Exception:
+                pass
+
     catalog_file = Path(get_catalog_path(catalog_path))
     if catalog_path is None and object_storage.is_configured():
         key = object_storage.object_key("catalog", "stream_catalog.json")
@@ -466,6 +544,14 @@ def read_stream_entries(catalog_path=None):
 
 def write_stream_entries(entries, catalog_path=None):
     """Write catalog locally and mirror it to persistent object storage when configured."""
+    if catalog_path is None:
+        try:
+            from safe_repo.core.mongo.mongo_client import is_mongo_available, _run_async as _run
+            if is_mongo_available():
+                _run(_mongo_write_catalog(entries))
+        except Exception:
+            pass
+
     catalog_file = Path(get_catalog_path(catalog_path))
     catalog_file.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(entries, indent=2, ensure_ascii=False).encode("utf-8")

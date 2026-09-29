@@ -1,9 +1,11 @@
 import os
 import json
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from safe_repo.core.mongo.mongo_client import get_async_db, is_mongo_available
 from safe_repo.web.auth import get_user_by_id
 
 PROFILES_FILE = Path(__file__).resolve().parent.parent / "core" / "mongo" / "users_profiles.json"
@@ -29,57 +31,101 @@ def _write_json(path: Path, data) -> None:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-def _load_profiles() -> Dict[str, Any]:
+def _load_profiles_json() -> Dict[str, Any]:
     data = _read_json(PROFILES_FILE, {"profiles": {}})
     if "profiles" not in data:
         data["profiles"] = {}
     return data
 
 
-def _save_profiles(data: Dict[str, Any]) -> None:
+def _save_profiles_json(data: Dict[str, Any]) -> None:
     _write_json(PROFILES_FILE, data)
 
 
-def _ensure_profile(user_id: str) -> Dict[str, Any]:
-    data = _load_profiles()
+def _mongo_profiles_coll():
+    db = get_async_db()
+    if db is None:
+        return None
+    return db["user_profiles"]
+
+
+def _default_profile(user_id: str) -> Dict[str, Any]:
+    return {
+        "user_id": user_id,
+        "display_name": "",
+        "bio": "",
+        "avatar_url": "",
+        "favorites": [],
+        "bookmarks": [],
+        "watch_history": [],
+        "preferences": {
+            "theme": "dark",
+            "notifications": True,
+            "autoplay": True,
+        },
+        "tags": [],
+        "stats": {
+            "videos_watched": 0,
+            "favorites_count": 0,
+            "bookmarks_count": 0,
+        },
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
+
+def _ensure_profile_json(user_id: str) -> Dict[str, Any]:
+    data = _load_profiles_json()
     profile = data["profiles"].get(user_id)
     if not profile:
-        profile = {
-            "user_id": user_id,
-            "display_name": "",
-            "bio": "",
-            "avatar_url": "",
-            "favorites": [],
-            "bookmarks": [],
-            "watch_history": [],
-            "preferences": {
-                "theme": "dark",
-                "notifications": True,
-                "autoplay": True,
-            },
-            "tags": [],
-            "stats": {
-                "videos_watched": 0,
-                "favorites_count": 0,
-                "bookmarks_count": 0,
-            },
-            "updated_at": datetime.utcnow().isoformat(),
-        }
+        profile = _default_profile(user_id)
         data["profiles"][user_id] = profile
-        _save_profiles(data)
+        _save_profiles_json(data)
     return profile
 
 
-def get_profile(user_id: str) -> Optional[Dict[str, Any]]:
-    data = _load_profiles()
+async def _ensure_profile_mongo(user_id: str) -> Optional[Dict[str, Any]]:
+    coll = _mongo_profiles_coll()
+    if coll is None:
+        return None
+    profile = await coll.find_one({"user_id": user_id})
+    if not profile:
+        profile = _default_profile(user_id)
+        await coll.insert_one(profile)
+    return profile
+
+
+async def get_profile(user_id: str) -> Optional[Dict[str, Any]]:
+    if is_mongo_available():
+        profile = await _ensure_profile_mongo(user_id)
+        if profile is not None:
+            profile.pop("_id", None)
+            return profile
+    data = _load_profiles_json()
     profile = data["profiles"].get(user_id)
     if not profile:
-        profile = _ensure_profile(user_id)
+        profile = _ensure_profile_json(user_id)
     return profile
 
 
-def update_profile(user_id: str, **kwargs) -> Optional[Dict[str, Any]]:
-    profile = get_profile(user_id)
+async def _save_profile_json(user_id: str, profile: Dict[str, Any]) -> None:
+    data = _load_profiles_json()
+    data["profiles"][user_id] = profile
+    _save_profiles_json(data)
+
+
+async def _save_profile_mongo(user_id: str, profile: Dict[str, Any]) -> None:
+    coll = _mongo_profiles_coll()
+    if coll is None:
+        return
+    await coll.update_one(
+        {"user_id": user_id},
+        {"$set": {k: v for k, v in profile.items() if k != "user_id"}},
+        upsert=True,
+    )
+
+
+async def update_profile(user_id: str, **kwargs) -> Optional[Dict[str, Any]]:
+    profile = await get_profile(user_id)
     if not profile:
         return None
     allowed_fields = {"display_name", "bio", "avatar_url"}
@@ -87,21 +133,21 @@ def update_profile(user_id: str, **kwargs) -> Optional[Dict[str, Any]]:
         if key in allowed_fields:
             profile[key] = value
     profile["updated_at"] = datetime.utcnow().isoformat()
-    data = _load_profiles()
-    data["profiles"][user_id] = profile
-    _save_profiles(data)
+    await _save_profile_json(user_id, profile)
+    if is_mongo_available():
+        await _save_profile_mongo(user_id, profile)
     return profile
 
 
-def get_favorites(user_id: str) -> List[str]:
-    profile = get_profile(user_id)
+async def get_favorites(user_id: str) -> List[str]:
+    profile = await get_profile(user_id)
     if not profile:
         return []
     return list(profile.get("favorites", []))
 
 
-def add_favorite(user_id: str, token: str) -> bool:
-    profile = get_profile(user_id)
+async def add_favorite(user_id: str, token: str) -> bool:
+    profile = await get_profile(user_id)
     if not profile:
         return False
     favorites = profile.get("favorites", [])
@@ -111,14 +157,14 @@ def add_favorite(user_id: str, token: str) -> bool:
     profile["favorites"] = favorites
     profile["stats"]["favorites_count"] = len(favorites)
     profile["updated_at"] = datetime.utcnow().isoformat()
-    data = _load_profiles()
-    data["profiles"][user_id] = profile
-    _save_profiles(data)
+    await _save_profile_json(user_id, profile)
+    if is_mongo_available():
+        await _save_profile_mongo(user_id, profile)
     return True
 
 
-def remove_favorite(user_id: str, token: str) -> bool:
-    profile = get_profile(user_id)
+async def remove_favorite(user_id: str, token: str) -> bool:
+    profile = await get_profile(user_id)
     if not profile:
         return False
     favorites = profile.get("favorites", [])
@@ -128,21 +174,21 @@ def remove_favorite(user_id: str, token: str) -> bool:
     profile["favorites"] = favorites
     profile["stats"]["favorites_count"] = len(favorites)
     profile["updated_at"] = datetime.utcnow().isoformat()
-    data = _load_profiles()
-    data["profiles"][user_id] = profile
-    _save_profiles(data)
+    await _save_profile_json(user_id, profile)
+    if is_mongo_available():
+        await _save_profile_mongo(user_id, profile)
     return True
 
 
-def get_bookmarks(user_id: str) -> List[str]:
-    profile = get_profile(user_id)
+async def get_bookmarks(user_id: str) -> List[str]:
+    profile = await get_profile(user_id)
     if not profile:
         return []
     return list(profile.get("bookmarks", []))
 
 
-def add_bookmark(user_id: str, token: str) -> bool:
-    profile = get_profile(user_id)
+async def add_bookmark(user_id: str, token: str) -> bool:
+    profile = await get_profile(user_id)
     if not profile:
         return False
     bookmarks = profile.get("bookmarks", [])
@@ -152,14 +198,14 @@ def add_bookmark(user_id: str, token: str) -> bool:
     profile["bookmarks"] = bookmarks
     profile["stats"]["bookmarks_count"] = len(bookmarks)
     profile["updated_at"] = datetime.utcnow().isoformat()
-    data = _load_profiles()
-    data["profiles"][user_id] = profile
-    _save_profiles(data)
+    await _save_profile_json(user_id, profile)
+    if is_mongo_available():
+        await _save_profile_mongo(user_id, profile)
     return True
 
 
-def remove_bookmark(user_id: str, token: str) -> bool:
-    profile = get_profile(user_id)
+async def remove_bookmark(user_id: str, token: str) -> bool:
+    profile = await get_profile(user_id)
     if not profile:
         return False
     bookmarks = profile.get("bookmarks", [])
@@ -169,21 +215,21 @@ def remove_bookmark(user_id: str, token: str) -> bool:
     profile["bookmarks"] = bookmarks
     profile["stats"]["bookmarks_count"] = len(bookmarks)
     profile["updated_at"] = datetime.utcnow().isoformat()
-    data = _load_profiles()
-    data["profiles"][user_id] = profile
-    _save_profiles(data)
+    await _save_profile_json(user_id, profile)
+    if is_mongo_available():
+        await _save_profile_mongo(user_id, profile)
     return True
 
 
-def get_watch_history(user_id: str) -> List[Dict[str, Any]]:
-    profile = get_profile(user_id)
+async def get_watch_history(user_id: str) -> List[Dict[str, Any]]:
+    profile = await get_profile(user_id)
     if not profile:
         return []
     return list(profile.get("watch_history", []))
 
 
-def add_watch_history(user_id: str, token: str, progress: float = 0.0) -> bool:
-    profile = get_profile(user_id)
+async def add_watch_history(user_id: str, token: str, progress: float = 0.0) -> bool:
+    profile = await get_profile(user_id)
     if not profile:
         return False
     watch_history = profile.get("watch_history", [])
@@ -196,14 +242,14 @@ def add_watch_history(user_id: str, token: str, progress: float = 0.0) -> bool:
     profile["watch_history"] = watch_history[:100]
     profile["stats"]["videos_watched"] = len(set(entry.get("token") for entry in watch_history))
     profile["updated_at"] = datetime.utcnow().isoformat()
-    data = _load_profiles()
-    data["profiles"][user_id] = profile
-    _save_profiles(data)
+    await _save_profile_json(user_id, profile)
+    if is_mongo_available():
+        await _save_profile_mongo(user_id, profile)
     return True
 
 
-def record_video_completion(user_id: str, token: str) -> bool:
-    profile = get_profile(user_id)
+async def record_video_completion(user_id: str, token: str) -> bool:
+    profile = await get_profile(user_id)
     if not profile:
         return False
     completed = profile.get("completed_media", [])
@@ -212,14 +258,14 @@ def record_video_completion(user_id: str, token: str) -> bool:
     completed.append(token)
     profile["completed_media"] = completed[-1000:]
     profile["updated_at"] = datetime.utcnow().isoformat()
-    data = _load_profiles()
-    data["profiles"][user_id] = profile
-    _save_profiles(data)
+    await _save_profile_json(user_id, profile)
+    if is_mongo_available():
+        await _save_profile_mongo(user_id, profile)
     return True
 
 
-def get_statistics(user_id: str) -> Dict[str, Any]:
-    profile = get_profile(user_id)
+async def get_statistics(user_id: str) -> Dict[str, Any]:
+    profile = await get_profile(user_id)
     if not profile:
         return {}
     stats = profile.get("stats", {})
@@ -229,36 +275,36 @@ def get_statistics(user_id: str) -> Dict[str, Any]:
     return stats
 
 
-def get_preferences(user_id: str) -> Dict[str, Any]:
-    profile = get_profile(user_id)
+async def get_preferences(user_id: str) -> Dict[str, Any]:
+    profile = await get_profile(user_id)
     if not profile:
         return {}
     return profile.get("preferences", {})
 
 
-def update_preferences(user_id: str, **kwargs) -> Optional[Dict[str, Any]]:
-    profile = get_profile(user_id)
+async def update_preferences(user_id: str, **kwargs) -> Optional[Dict[str, Any]]:
+    profile = await get_profile(user_id)
     if not profile:
         return None
     preferences = profile.get("preferences", {})
     preferences.update(kwargs)
     profile["preferences"] = preferences
     profile["updated_at"] = datetime.utcnow().isoformat()
-    data = _load_profiles()
-    data["profiles"][user_id] = profile
-    _save_profiles(data)
+    await _save_profile_json(user_id, profile)
+    if is_mongo_available():
+        await _save_profile_mongo(user_id, profile)
     return preferences
 
 
-def get_tags(user_id: str) -> List[str]:
-    profile = get_profile(user_id)
+async def get_tags(user_id: str) -> List[str]:
+    profile = await get_profile(user_id)
     if not profile:
         return []
     return list(profile.get("tags", []))
 
 
-def assign_tag(user_id: str, tag: str) -> bool:
-    profile = get_profile(user_id)
+async def assign_tag(user_id: str, tag: str) -> bool:
+    profile = await get_profile(user_id)
     if not profile:
         return False
     tags = profile.get("tags", [])
@@ -267,14 +313,14 @@ def assign_tag(user_id: str, tag: str) -> bool:
     tags.append(tag)
     profile["tags"] = tags
     profile["updated_at"] = datetime.utcnow().isoformat()
-    data = _load_profiles()
-    data["profiles"][user_id] = profile
-    _save_profiles(data)
+    await _save_profile_json(user_id, profile)
+    if is_mongo_available():
+        await _save_profile_mongo(user_id, profile)
     return True
 
 
-def remove_tag(user_id: str, tag: str) -> bool:
-    profile = get_profile(user_id)
+async def remove_tag(user_id: str, tag: str) -> bool:
+    profile = await get_profile(user_id)
     if not profile:
         return False
     tags = profile.get("tags", [])
@@ -283,27 +329,38 @@ def remove_tag(user_id: str, tag: str) -> bool:
     tags.remove(tag)
     profile["tags"] = tags
     profile["updated_at"] = datetime.utcnow().isoformat()
-    data = _load_profiles()
-    data["profiles"][user_id] = profile
-    _save_profiles(data)
+    await _save_profile_json(user_id, profile)
+    if is_mongo_available():
+        await _save_profile_mongo(user_id, profile)
     return True
 
 
+def _run_async(coro):
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
+
+
 def profile_view():
-    user = current_user()
-    if not user:
+    from flask import request, session, redirect, render_template_string
+    user_id = session.get("user_id")
+    if not user_id:
         return redirect("/auth/login")
 
     if request.method == "POST":
         display_name = (request.form.get("display_name") or "").strip()
         bio = (request.form.get("bio") or "").strip()
         avatar_url = (request.form.get("avatar_url") or "").strip()
-        update_profile(user["id"], display_name=display_name, bio=bio, avatar_url=avatar_url)
+        _run_async(update_profile(user_id, display_name=display_name, bio=bio, avatar_url=avatar_url))
         return redirect("/auth/profile")
 
-    profile = get_profile(user["id"])
-    stats = get_statistics(user["id"])
-    return render_template_string(PROFILE_TEMPLATE, user=user, profile=profile, stats=stats)
+    profile = _run_async(get_profile(user_id))
+    stats = _run_async(get_statistics(user_id))
+    user_obj = _run_async(get_user_by_id(user_id))
+    return render_template_string(PROFILE_TEMPLATE, user=user_obj, profile=profile, stats=stats)
 
 
 def current_user():
@@ -311,7 +368,7 @@ def current_user():
     user_id = session.get("user_id")
     if not user_id:
         return None
-    return get_user_by_id(user_id)
+    return _run_async(get_user_by_id(user_id))
 
 
 PROFILE_TEMPLATE = """
@@ -475,10 +532,10 @@ PROFILE_TEMPLATE = """
 
         <div class="profile-card">
             <div class="profile-header">
-                <div class="avatar">{{ (user.username or 'U')[:2].upper() }}</div>
+                <div class="avatar">{{ (user.username if user else 'U')[:2].upper() }}</div>
                 <div class="profile-info">
-                    <h1>{{ user.username }}</h1>
-                    <p>{{ user.email }}</p>
+                    <h1>{{ user.username if user else 'Guest' }}</h1>
+                    <p>{{ user.email if user else '' }}</p>
                     {% if profile and profile.display_name %}
                     <p>{{ profile.display_name }}</p>
                     {% endif %}
