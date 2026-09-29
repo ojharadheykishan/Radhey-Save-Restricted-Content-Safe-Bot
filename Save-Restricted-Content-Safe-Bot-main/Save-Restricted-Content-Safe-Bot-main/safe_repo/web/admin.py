@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from flask import request, session, redirect, render_template, abort, jsonify
 from safe_repo.web.study import load_catalog_entries
 from safe_repo.core.media_links import get_stream_cache_stats, migrate_local_media_to_object_storage, read_stream_entries, write_stream_entries
+from safe_repo.core.mongo.mongo_client import get_mongo_status
 from safe_repo.core.object_storage import is_configured as object_storage_is_configured
 
 ADMIN_USERNAME = os.environ.get("STUDY_ADMIN_USERNAME", "admin")
@@ -134,6 +135,19 @@ def edit_entry_view(token):
 def admin_logout_view():
     session.pop("is_admin", None)
     return redirect("/admin/login")
+
+
+def admin_mongo_status_view():
+    require_admin("viewer")
+    status = get_mongo_status()
+    local_entries = _load_entries()
+    mongo_entries = status.get("recent_entries", [])
+    return render_template(
+        "admin/mongo_status.html",
+        status=status,
+        local_entry_count=len(local_entries),
+        admin_role=session.get("admin_role", "owner"),
+    )
 
 
 def toggle_featured_view(token):

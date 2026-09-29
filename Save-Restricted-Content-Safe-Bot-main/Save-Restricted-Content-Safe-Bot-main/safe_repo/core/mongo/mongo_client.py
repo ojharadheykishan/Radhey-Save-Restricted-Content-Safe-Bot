@@ -117,3 +117,54 @@ def _run_async(coro):
     else:
         # No running loop — safe to use asyncio.run directly
         return asyncio.run(coro)
+
+
+def get_mongo_status():
+    """Return a dict describing the live MongoDB connection status (sync)."""
+    from config import MONGO_DB
+    status = {
+        "mongo_db_env_set": bool(MONGO_DB),
+        "mongo_db_configured": bool(MONGO_DB) and "mongodb" in (MONGO_DB or ""),
+        "connected": False,
+        "database": _db_name() if MONGO_DB and "mongodb" in MONGO_DB else None,
+        "server_version": None,
+        "collections": [],
+        "stream_catalog_count": 0,
+        "stream_catalog_approved": 0,
+        "stream_catalog_pending": 0,
+        "recent_entries": [],
+        "error": None,
+    }
+    if not status["mongo_db_configured"]:
+        status["error"] = "MONGO_DB is not set or invalid"
+        return status
+    client = _sync_mongo_client()
+    if client is None:
+        status["error"] = "MongoClient could not be initialized"
+        return status
+    try:
+        info = client.server_info()
+        status["server_version"] = info.get("version")
+        db = client[_db_name()]
+        status["collections"] = sorted(db.list_collection_names())
+        if "stream_catalog" in status["collections"]:
+            coll = db["stream_catalog"]
+            status["stream_catalog_count"] = coll.count_documents({})
+            status["stream_catalog_approved"] = coll.count_documents({"approved": True})
+            status["stream_catalog_pending"] = coll.count_documents({"approved": False})
+            cursor = coll.find({}).sort("timestamp", -1).limit(20)
+            for doc in cursor:
+                status["recent_entries"].append({
+                    "token": str(doc.get("token", "")),
+                    "file_name": doc.get("file_name", ""),
+                    "file_size": doc.get("file_size", 0),
+                    "approved": doc.get("approved", True),
+                    "folder": doc.get("folder", "General"),
+                    "timestamp": doc.get("timestamp", ""),
+                    "source": "mongo",
+                })
+        status["connected"] = True
+    except Exception as e:
+        status["connected"] = False
+        status["error"] = str(e)
+    return status

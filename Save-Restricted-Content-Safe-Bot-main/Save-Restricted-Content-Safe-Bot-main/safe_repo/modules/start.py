@@ -72,8 +72,29 @@ async def start(_, message):
     join = await subscribe(_, message)
     if join == 1:
         return
-    
+
     user_id = message.from_user.id
+    if not await get_user(user_id):
+        await add_user(user_id)
+
+    # MongoDB telemetry is best-effort: never block the /start reply.
+    try:
+        from safe_repo.core.mongo import analytics_db, activity_db
+        await analytics_db.log_event(
+            "start", user_id, {"chat_type": "private" if message.chat.type.value == "private" else str(message.chat.type.value)}
+        )
+        await activity_db.log_activity(user_id, "bot_started", None, {})
+    except Exception as error:
+        print(f"start telemetry failed: {error}")
+
+    # Referral deep links look like /start <code>.
+    try:
+        parts = (message.text or "").split()
+        if len(parts) > 1:
+            from safe_repo.core.mongo import referral_db
+            await referral_db.use_referral_code(user_id, parts[1].strip())
+    except Exception as error:
+        print(f"referral handling failed: {error}")
     # Existing premium users and returning users can continue normally.
     premium_check = await check_premium(user_id)
     if premium_check is None:

@@ -107,6 +107,15 @@ async def give_premium_cmd_handler(client, message):
             expiry_time = datetime.datetime.now() + datetime.timedelta(seconds=seconds)  
             plan_type = "15_days" if message.command[2:4] == ["15", "days"] else "time_limited"
             await plans_db.add_premium(user_id, expiry_time, plan_type=plan_type)
+            # MongoDB side effects are best-effort and must never block the grant.
+            try:
+                from safe_repo.core.mongo import analytics_db, quota_db, referral_db
+                if not await referral_db.list_user_refs(user_id):
+                    await referral_db.create_referral_code(user_id)
+                await quota_db.reset_daily_quotas()
+                await analytics_db.log_event("premium_purchased", user_id, {"plan_type": plan_type})
+            except Exception as error:
+                print(f"Premium grant telemetry failed: {error}")
             data = await plans_db.check_premium(user_id)
             expiry = data.get("expire_date")   
             expiry_str_in_ist = expiry.astimezone(pytz.timezone("Asia/Kolkata")).strftime("%d-%m-%Y\n⏱️ ᴇxᴘɪʀʏ ᴛɪᴍᴇ : %I:%M:%S %p")         

@@ -7,7 +7,7 @@ import json
 import tempfile
 from flask import Flask, send_file, send_from_directory, abort, redirect, request, render_template, jsonify, Response
 from safe_repo.core.media_links import get_stream_file, get_stream_thumbnail, read_stream_entries, get_stream_entry, store_stream_thumbnail
-from safe_repo.web.admin import admin_dashboard_view, admin_login_view, admin_logout_view, toggle_featured_view, toggle_trending_view, delete_entry_view, edit_entry_view, bulk_action_view, rename_folder_view, migrate_media_storage_view, require_admin, is_admin
+from safe_repo.web.admin import admin_dashboard_view, admin_login_view, admin_logout_view, admin_mongo_status_view, toggle_featured_view, toggle_trending_view, delete_entry_view, edit_entry_view, bulk_action_view, rename_folder_view, migrate_media_storage_view, require_admin, is_admin
 from safe_repo.web.api import register_api_routes
 from safe_repo.web import auth as auth_module, users as users_module
 from safe_repo.web.ai import ai_chat, ai_page_config
@@ -113,6 +113,11 @@ def admin_login():
 @app.route('/admin/dashboard')
 def admin_dashboard():
     return admin_dashboard_view()
+
+
+@app.route('/admin/mongo-status')
+def admin_mongo_status():
+    return admin_mongo_status_view()
 
 
 @app.route('/admin/logout')
@@ -343,6 +348,29 @@ def api_public_folders():
 def health_check():
     """Health check endpoint for monitoring"""
     return "OK", 200
+
+
+@app.route('/health/metrics')
+def health_metrics():
+    """Expose recent health history and usage analytics.
+
+    Every backing call is independently guarded so a single MongoDB failure
+    degrades that section to an error marker instead of a 500.
+    """
+    from safe_repo.core.mongo import analytics_db, health_db
+
+    def safe(name, coro_factory):
+        try:
+            return coro_factory()
+        except Exception as error:
+            return {"error": str(error)}
+
+    payload = {
+        "memory_mb": safe("memory_mb", lambda: health_db._run_async(health_db.get_health_history("memory_mb", 24))),
+        "cpu_percent": safe("cpu_percent", lambda: health_db._run_async(health_db.get_health_history("cpu_percent", 24))),
+        "daily_stats": safe("daily_stats", lambda: analytics_db._run_async(analytics_db.get_daily_stats(days=7))),
+    }
+    return jsonify(payload), 200
 
 
 @app.route('/service-worker.js')

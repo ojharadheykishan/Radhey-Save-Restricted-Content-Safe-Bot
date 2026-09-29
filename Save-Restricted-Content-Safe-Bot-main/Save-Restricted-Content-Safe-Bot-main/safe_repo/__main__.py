@@ -86,6 +86,13 @@ async def safe_repo_boot():
         asyncio.create_task(keep_alive_task())
         asyncio.create_task(schedule_cleanup_task())
 
+        # Periodic MongoDB maintenance (sessions, health metrics, activity, rate limits)
+        try:
+            from safe_repo.core.mongo.auto_cleanup import register_auto_cleanup
+            register_auto_cleanup()
+        except Exception as e:
+            logger.error(f"Failed to register auto_cleanup tasks: {e}")
+
         # Start the Pyrogram client
         # Handle 409 Conflict: if another instance is logged in with the same
         # bot token, Telegram rejects the new login. We terminate the other

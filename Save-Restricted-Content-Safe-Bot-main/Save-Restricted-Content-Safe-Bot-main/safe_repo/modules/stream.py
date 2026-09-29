@@ -507,6 +507,27 @@ async def handle_direct_media(client, message):
             await notify_new_media(metadata["title"], public_link["player_url"])
             await archive_stream_link(message, public_link['player_url'], public_link['stream_url'], study_url=study_url)
 
+            # MongoDB telemetry is best-effort and must never fail the upload.
+            try:
+                from safe_repo.core.mongo import analytics_db, activity_db, download_stats
+                token = public_link.get("token")
+                if token:
+                    await download_stats.increment_views(token)
+                media_type = "pdf" if getattr(getattr(message, "document", None), "mime_type", "") == "application/pdf" else "video"
+                await analytics_db.log_event(
+                    "media_downloaded",
+                    message.from_user.id if message.from_user else 0,
+                    {"media_type": media_type, "size_bytes": os.path.getsize(media_file) if os.path.exists(media_file) else 0},
+                )
+                await activity_db.log_activity(
+                    message.from_user.id if message.from_user else 0,
+                    "video_streamed",
+                    token,
+                    {"file": os.path.basename(media_file)},
+                )
+            except Exception as error:
+                logger.warning(f"stream telemetry failed: {error}")
+
         text = build_stream_reply_text(public_link, study_url=study_url)
         logger.info(f"handle_direct_media: sending final reply message")
         await app.edit_message_text(chat_id, status_message.id, f"{format_progress_bar(100, 'Video ready', 'Player and direct links generated')}\n\n{text}")

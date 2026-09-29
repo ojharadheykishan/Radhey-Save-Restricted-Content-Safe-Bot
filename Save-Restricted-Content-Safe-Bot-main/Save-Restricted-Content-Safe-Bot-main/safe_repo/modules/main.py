@@ -62,7 +62,18 @@ async def single_link(_, message):
                 # Let get_msg handle all message/story/topic/bot links via the
                 # robust parser. It will reply with a clear error if the link
                 # cannot be parsed.
-                await get_msg(userbot, user_id, msg.id, link, 0, message, False)
+                result = await get_msg(userbot, user_id, msg.id, link, 0, message, False)
+
+                # MongoDB telemetry is best-effort and must never mask a real error.
+                try:
+                    from safe_repo.core.mongo import analytics_db
+                    await analytics_db.log_event(
+                        "link_generated",
+                        message.from_user.id if message.from_user else user_id,
+                        {"source": "single_link", "host": "invite" if ('/+' in link or 'joinchat/' in link) else "message"},
+                    )
+                except Exception as error:
+                    logger.warning(f"Link analytics failed: {error}")
         except Exception as e:
             logger.error(f"Processing error: {e}")
             await msg.edit_text(f"Link: `{link}`\n\n**Error:** {str(e)}")
@@ -350,6 +361,40 @@ async def batch_link(_, message):
 
     # Calculate total media to process
     total_messages = cl - cs + 1
+
+    # Throttle batch abuse: max 10 batch runs per minute per user.
+    try:
+        from safe_repo.core.mongo import rate_limit_db
+        batch_limit = await rate_limit_db.check_rate_limit(f"batch:{user_id}", limit=10, window=60)
+        if not batch_limit.get("allowed"):
+            await app.send_message(
+                message.chat.id,
+                f"⚠️ Rate limit reached. Please retry in {int(batch_limit.get('reset_in', 60))} seconds.",
+            )
+            return
+        await rate_limit_db.record_request(f"batch:{user_id}")
+    except Exception as error:
+        logger.warning(f"Batch rate limit check failed: {error}")
+
+    # Enforce per-user quota before starting an expensive batch job.
+    try:
+        from safe_repo.core.mongo import quota_db
+        quota = await quota_db.check_quota(user_id)
+        if not quota.get("allowed"):
+            await app.send_message(
+                message.chat.id,
+                "⚠️ Your daily/monthly quota has been used up. Please try again later.",
+            )
+            return
+    except Exception as error:
+        logger.warning(f"Batch quota check failed: {error}")
+
+    try:
+        from safe_repo.core.mongo import analytics_db
+        await analytics_db.log_event("batch_started", user_id, {"messages": total_messages})
+    except Exception as error:
+        logger.warning(f"Batch analytics failed: {error}")
+
     await app.send_message(message.chat.id, f"Total messages to process: {total_messages}")
 
     # Check if user is premium before enforcing batch size limit

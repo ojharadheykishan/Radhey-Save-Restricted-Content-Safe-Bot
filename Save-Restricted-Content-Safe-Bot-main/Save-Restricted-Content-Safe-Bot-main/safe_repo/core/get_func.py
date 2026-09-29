@@ -167,6 +167,24 @@ def _publish_batch_media_to_site(media_file, thumbnail_path, source_message, med
     return saved
 
 
+async def _record_batch_publish(user_id, saved, media_type, media_file):
+    """Index a freshly published batch item for stats and dedup lookups.
+
+    Best-effort only: a MongoDB outage must not abort the media upload.
+    """
+    try:
+        from safe_repo.core.mongo import analytics_db, dedup_db, download_stats
+        token = saved.get("token")
+        content_hash = saved.get("content_hash")
+        if token:
+            await download_stats.increment_views(token)
+        if content_hash:
+            await dedup_db.index_media_entry({"token": token, "content_hash": content_hash})
+        await analytics_db.log_event("batch_media_published", user_id, {"media_type": media_type})
+    except Exception as error:
+        logger.warning(f"Batch publish telemetry failed: {error}")
+
+
 async def get_msg(
     userbot,
     sender,
@@ -453,6 +471,7 @@ async def get_msg(
                         published = _publish_batch_media_to_site(file, thumb_path, msg, "pdf")
                         if published:
                             await notify_new_media(lines[0] if lines else os.path.basename(file), published["player_url"], admin_only=True)
+                            await _record_batch_publish(sender, published, "pdf", file)
                     try:
                         if target_chat_id != LOG_GROUP:
                             await safe_repo.copy(LOG_GROUP)
@@ -529,6 +548,7 @@ async def get_msg(
                         published = _publish_batch_media_to_site(file, thumb_path, msg, "video")
                         if published:
                             await notify_new_media(lines[0] if lines else os.path.basename(file), published["player_url"], admin_only=True)
+                            await _record_batch_publish(sender, published, "video", file)
                     try:
                         if target_chat_id != LOG_GROUP:
                             await safe_repo.copy(LOG_GROUP)

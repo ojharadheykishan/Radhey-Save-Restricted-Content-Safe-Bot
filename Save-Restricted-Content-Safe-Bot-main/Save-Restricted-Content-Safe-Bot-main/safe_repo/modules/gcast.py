@@ -55,6 +55,20 @@ async def broadcast(_, message):
 
 
 
+    # MongoDB telemetry is best-effort and must never fail the broadcast.
+    try:
+        from safe_repo.core.mongo import analytics_db, quota_db
+        admin_id = message.from_user.id if message.from_user else 0
+        await analytics_db.log_event(
+            "broadcast_sent",
+            admin_id,
+            {"target_count": done_users, "failed_count": failed_users},
+        )
+        await quota_db.increment_quota(admin_id, bytes_used=0)
+    except Exception as error:
+        print(f"Broadcast telemetry failed: {error}")
+
+
 @app.on_message(filters.command("announce") & filters.user(OWNER_ID))
 async def announced(_, message):
     if message.reply_to_message:

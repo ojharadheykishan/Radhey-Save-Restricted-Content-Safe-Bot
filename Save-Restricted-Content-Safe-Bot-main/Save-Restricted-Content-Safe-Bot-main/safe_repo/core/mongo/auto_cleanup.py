@@ -2,9 +2,12 @@
 import os
 import json
 import asyncio
+import logging
 from datetime import datetime, timezone, timedelta
 
 from safe_repo.core.mongo.mongo_client import get_mongo_db, is_mongo_available
+
+logger = logging.getLogger(__name__)
 
 STORAGE = os.path.join(os.path.dirname(__file__), "sessions.json")
 
@@ -109,3 +112,61 @@ def _run_async(coro):
         return loop.run_until_complete(coro)
     finally:
         loop.close()
+
+
+# (task name, interval seconds, coroutine factory)
+_CLEANUP_SCHEDULE = (
+    ("session_cleanup", 6 * 60 * 60, lambda: cleanup_expired_sessions()),
+    ("health_metrics_cleanup", 7 * 24 * 60 * 60, lambda: _health_cleanup()),
+    ("activity_cleanup", 30 * 24 * 60 * 60, lambda: _activity_cleanup()),
+    ("rate_limit_reset", 24 * 60 * 60, lambda: _rate_limit_reset()),
+)
+
+
+async def _health_cleanup():
+    from safe_repo.core.mongo import health_db
+    return await health_db.cleanup_old_metrics(days=7)
+
+
+async def _activity_cleanup():
+    from safe_repo.core.mongo import activity_db
+    return await activity_db.clear_old_activity(days=30)
+
+
+async def _rate_limit_reset():
+    from safe_repo.core.mongo import rate_limit_db
+    return await rate_limit_db.reset_rate_limits()
+
+
+async def _cleanup_loop(name, interval, factory):
+    """Run one cleanup task forever, sleeping `interval` between runs."""
+    await asyncio.sleep(interval)
+    while True:
+        try:
+            result = await factory()
+            logger.info("auto_cleanup[%s] removed/updated: %s", name, result)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.warning("auto_cleanup[%s] failed: %s", name, error)
+        await asyncio.sleep(interval)
+
+
+def register_auto_cleanup():
+    """Schedule periodic cleanup tasks on the running event loop.
+
+    Call once from an async context (e.g. bot startup). Each task runs its
+    cleanup immediately after one full interval, so startup is never blocked.
+    Individual failures are logged and retried on the next tick.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.warning("register_auto_cleanup() requires a running event loop; not scheduled")
+        return []
+
+    tasks = []
+    for name, interval, factory in _CLEANUP_SCHEDULE:
+        tasks.append(loop.create_task(_cleanup_loop(name, interval, factory)))
+    logger.info("Registered %d auto_cleanup tasks", len(tasks))
+    return tasks

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% block title %}MongoDB Status{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto py-8 px-4">
+    <div class="flex items-center justify-between mb-6">
+        <h1 class="font-display text-3xl font-bold text-white">MongoDB Status</h1>
+        <a href="/admin/dashboard" class="px-4 py-2 rounded-xl bg-slate-800/50 text-slate-300 hover:text-white transition-colors">
+            ← Back to Dashboard
+        </a>
+    </div>
+
+    <!-- Connection Card -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div class="glass-card rounded-xl p-6">
+            <div class="flex items-center gap-3 mb-3">
+                <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-electric to-purple flex items-center justify-center">
+                    {% if status.connected %}
+                    <i class="fas fa-check-circle text-green-400 text-xl"></i>
+                    {% else %}
+                    <i class="fas fa-times-circle text-red-400 text-xl"></i>
+                    {% endif %}
+                </div>
+                <div>
+                    <p class="text-slate-400 text-sm">Connection</p>
+                    <p class="text-xl font-bold {% if status.connected %}text-green-400{% else %}text-red-400{% endif %}">
+                        {{ "Connected" if status.connected else "Disconnected" }}
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-card rounded-xl p-6">
+            <p class="text-slate-400 text-sm mb-1">Database</p>
+            <p class="text-xl font-bold text-white">{{ status.database or "—" }}</p>
+        </div>
+
+        <div class="glass-card rounded-xl p-6">
+            <p class="text-slate-400 text-sm mb-1">Server Version</p>
+            <p class="text-xl font-bold text-white">{{ status.server_version or "—" }}</p>
+        </div>
+    </div>
+
+    <!-- Catalog Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div class="glass-card rounded-xl p-4 text-center">
+            <p class="text-2xl font-bold text-electric">{{ status.stream_catalog_count }}</p>
+            <p class="text-slate-400 text-sm">Total in Catalog</p>
+        </div>
+        <div class="glass-card rounded-xl p-4 text-center">
+            <p class="text-2xl font-bold text-green-400">{{ status.stream_catalog_approved }}</p>
+            <p class="text-slate-400 text-sm">Approved</p>
+        </div>
+        <div class="glass-card rounded-xl p-4 text-center">
+            <p class="text-2xl font-bold text-yellow-400">{{ status.stream_catalog_pending }}</p>
+            <p class="text-slate-400 text-sm">Pending Approval</p>
+        </div>
+        <div class="glass-card rounded-xl p-4 text-center">
+            <p class="text-2xl font-bold text-slate-300">{{ local_entry_count }}</p>
+            <p class="text-slate-400 text-sm">Local JSON Entries</p>
+        </div>
+    </div>
+
+    <!-- Error Box -->
+    {% if status.error %}
+    <div class="mb-6 p-4 rounded-xl border border-red-500/30 bg-red-500/10">
+        <p class="text-red-400"><i class="fas fa-exclamation-triangle mr-2"></i>{{ status.error }}</p>
+    </div>
+    {% endif %}
+
+    <!-- Collections -->
+    <div class="glass-card rounded-xl p-6 mb-6">
+        <h2 class="font-display text-xl font-bold text-white mb-4">Collections</h2>
+        {% if status.collections %}
+        <div class="flex flex-wrap gap-2">
+            {% for col in status.collections %}
+            <span class="px-3 py-1 rounded-lg bg-electric/10 text-electric text-sm">{{ col }}</span>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-slate-400">No collections found or MongoDB not connected</p>
+        {% endif %}
+    </div>
+
+    <!-- Recent MongoDB Entries -->
+    <div class="glass-card rounded-xl p-6">
+        <h2 class="font-display text-xl font-bold text-white mb-4">Recent Catalog Entries (MongoDB)</h2>
+        {% if status.recent_entries %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-white/10">
+                        <th class="text-left py-3 px-4 text-slate-300 font-medium">Token</th>
+                        <th class="text-left py-3 px-4 text-slate-300 font-medium">File Name</th>
+                        <th class="text-left py-3 px-4 text-slate-300 font-medium">Folder</th>
+                        <th class="text-left py-3 px-4 text-slate-300 font-medium">Size</th>
+                        <th class="text-left py-3 px-4 text-slate-300 font-medium">Status</th>
+                        <th class="text-left py-3 px-4 text-slate-300 font-medium">Saved At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in status.recent_entries %}
+                    <tr class="border-b border-white/5 hover:bg-white/5">
+                        <td class="py-3 px-4 font-mono text-electric">{{ entry.token[:12] }}…</td>
+                        <td class="py-3 px-4 text-slate-200">{{ entry.file_name }}</td>
+                        <td class="py-3 px-4 text-slate-300">{{ entry.folder }}</td>
+                        <td class="py-3 px-4 text-slate-400">{{ "%.1f"|format(entry.file_size / 1048576) if entry.file_size else "—" }} MB</td>
+                        <td class="py-3 px-4">
+                            {% if entry.approved %}
+                            <span class="px-2 py-1 rounded-full text-xs bg-green-500/20 text-green-400">Approved</span>
+                            {% else %}
+                            <span class="px-2 py-1 rounded-full text-xs bg-yellow-500/20 text-yellow-400">Pending</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-3 px-4 text-slate-400">{{ entry.timestamp or "—" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-slate-400">No catalog entries found in MongoDB</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
