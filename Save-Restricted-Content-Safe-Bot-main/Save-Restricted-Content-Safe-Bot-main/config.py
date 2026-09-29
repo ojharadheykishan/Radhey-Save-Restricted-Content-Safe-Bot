@@ -19,5 +19,7 @@ OWNER_ID = [8552899459]
 
 # MongoDB connection string (optional). When set, the app uses MongoDB as primary
 # storage with JSON files as automatic fallback. Set via env var MONGO_DB.
-# NOTE: For production (Railway), set MONGO_DB env var instead of hardcoding.
-MONGO_DB = os.environ.get("MONGO_DB") or "mongodb+srv://ojharadheykishan_db_user:0BIemOMHsvSCyapR@cluster0.id6fa6s.mongodb.net/safe_repo?retryWrites=true&w=majority"
+# NOTE: never hardcode the production URI here. A fallback string made local runs
+# and the test suite connect to the live database, where catalog rewrites wiped
+# saved links. Without this variable the app runs on the JSON fallback only.
+MONGO_DB = os.environ.get("MONGO_DB", "").strip()

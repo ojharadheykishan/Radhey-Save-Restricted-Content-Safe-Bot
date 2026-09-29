@@ -3,6 +3,7 @@
 import asyncio
 import importlib
 import logging
+import os
 from aiojobs import create_scheduler
 from pyrogram import idle
 from safe_repo.modules import ALL_MODULES
@@ -46,15 +47,21 @@ from safe_repo.core.media_links import run_full_cleanup
 from config import CLONE_LOG_CHANNEL
 
 async def schedule_cleanup_task():
-    logger.info("Storage cleanup task started (runs every 7 hours)")
+    """Periodically trim the media cache. Retention defaults to "keep forever"."""
+    interval_hours = 7
+    try:
+        interval_hours = max(1, int(os.environ.get("STREAM_CLEANUP_INTERVAL_HOURS", "7")))
+    except (TypeError, ValueError):
+        interval_hours = 7
+    logger.info(f"Storage cleanup task started (runs every {interval_hours} hours)")
     while True:
         try:
-            removed = run_full_cleanup(max_age_hours=7)
+            removed = run_full_cleanup()
             if removed:
                 logger.info(f"Storage cleanup completed: removed {removed} old items")
         except Exception as e:
             logger.error(f"Storage cleanup error: {e}")
-        await asyncio.sleep(7 * 3600)
+        await asyncio.sleep(interval_hours * 3600)
 
 async def safe_repo_boot():
     try:

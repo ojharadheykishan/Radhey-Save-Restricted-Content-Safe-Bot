@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from flask import request, session, redirect, render_template, abort, jsonify
 from safe_repo.web.study import load_catalog_entries
-from safe_repo.core.media_links import get_stream_cache_stats, migrate_local_media_to_object_storage, read_stream_entries, write_stream_entries
+from safe_repo.core.media_links import get_stream_cache_stats, migrate_local_media_to_object_storage, read_stream_entries, remove_stream_entries, write_stream_entries
 from safe_repo.core.mongo.mongo_client import get_mongo_status
 from safe_repo.core.object_storage import is_configured as object_storage_is_configured
 
@@ -174,9 +174,7 @@ def toggle_trending_view(token):
 
 def delete_entry_view(token):
     require_admin("owner")
-    entries = _load_entries()
-    entries = [entry for entry in entries if str(entry.get("token")) != str(token)]
-    _save_entries(entries)
+    remove_stream_entries([token])
     return redirect("/admin/dashboard")
 
 
@@ -195,9 +193,9 @@ def bulk_action_view():
         require_admin("owner")
     entries = _load_entries()
     if action == "delete":
-        remaining = [entry for entry in entries if str(entry.get("token")) not in selected_tokens]
-        updated_count = len(entries) - len(remaining)
-        entries = remaining
+        updated_count = sum(1 for entry in entries if str(entry.get("token")) in selected_tokens)
+        remove_stream_entries(selected_tokens)
+        entries = [entry for entry in entries if str(entry.get("token")) not in selected_tokens]
     elif action in {"featured", "trending"}:
         updated_count = 0
         for entry in entries:

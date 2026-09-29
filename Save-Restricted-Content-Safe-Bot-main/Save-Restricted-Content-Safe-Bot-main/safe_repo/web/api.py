@@ -23,7 +23,13 @@ from safe_repo.web.tags import (
 )
 from safe_repo.web.batch import create_batch_job, get_job_status, get_job_zip_path, cleanup_expired
 from safe_repo.web.stats import compute_stats, get_dashboard_data
-from safe_repo.core.media_links import read_stream_entries, get_stream_entry, write_stream_entries
+from safe_repo.core.media_links import (
+    increment_stream_entry_field,
+    read_stream_entries,
+    get_stream_entry,
+    write_stream_entries,
+)
+from safe_repo.core.mongo.mongo_client import _run_async
 from safe_repo.web.users import add_watch_history, get_watch_history, record_video_completion
 from safe_repo.web.study import load_catalog_entries
 from safe_repo.web.notifications import save_push_subscription, remove_push_subscription
@@ -236,15 +242,14 @@ def api_user_history():
 # ============= Video Endpoints =============
 
 def api_video_view(token: str):
-    entries = read_stream_entries()
-    updated = None
-    for entry in entries:
-        if str(entry.get("token")) == str(token) and entry.get("approved", True):
-            entry["views"] = int(entry.get("views") or 0) + 1
-            updated = entry
-            break
-    if updated:
-        write_stream_entries(entries)
+    entry = get_stream_entry(token)
+    views = None
+    if entry and entry.get("approved", True):
+        # Increment in place: rewriting the whole catalog here used to drop
+        # entries that were saved while the request was being handled.
+        views = increment_stream_entry_field(token, "views", 1)
+    if views is None and entry:
+        views = int(entry.get("views") or 0)
 
     user_id = _get_current_user_id()
     if user_id:
@@ -258,7 +263,7 @@ def api_video_view(token: str):
         prefs[user_id] = user_prefs
         _write_prefs(prefs)
 
-    return jsonify({"success": True, "views": int(updated.get("views") or 0) if updated else 0})
+    return jsonify({"success": True, "views": int(views or 0)})
 
 
 def api_video_progress(token: str):
@@ -268,7 +273,7 @@ def api_video_progress(token: str):
 
     user_id = _get_current_user_id()
     if request.method == "GET":
-        history = get_watch_history(user_id) if user_id else []
+        history = _run_async(get_watch_history(user_id)) if user_id else []
         progress = next((float(item.get("progress") or 0) for item in history if item.get("token") == token), 0.0)
         return jsonify({"success": True, "progress": progress, "tracked": bool(user_id)})
 
@@ -280,16 +285,11 @@ def api_video_progress(token: str):
     if not user_id:
         return jsonify({"success": True, "progress": progress, "tracked": False})
 
-    history = get_watch_history(user_id)
+    history = _run_async(get_watch_history(user_id))
     previous = next((float(item.get("progress") or 0) for item in history if item.get("token") == token), 0.0)
-    add_watch_history(user_id, token, progress)
-    if progress >= 0.95 and previous < 0.95 and record_video_completion(user_id, token):
-        entries = read_stream_entries()
-        for catalog_entry in entries:
-            if str(catalog_entry.get("token")) == str(token):
-                catalog_entry["completion_count"] = int(catalog_entry.get("completion_count") or 0) + 1
-                write_stream_entries(entries)
-                break
+    _run_async(add_watch_history(user_id, token, progress))
+    if progress >= 0.95 and previous < 0.95 and _run_async(record_video_completion(user_id, token)):
+        increment_stream_entry_field(token, "completion_count", 1)
     return jsonify({"success": True, "progress": progress, "tracked": True})
 
 
@@ -320,7 +320,7 @@ def api_stats_user(user_id: str):
 # ============= Tags Endpoints =============
 
 def api_tags_list():
-    tags = tags_get_all_tags_with_counts()
+    tags = _run_async(tags_get_all_tags_with_counts())
     return jsonify({"success": True, "tags": tags})
 
 
@@ -334,7 +334,7 @@ def api_admin_tags_create():
     if not name:
         return jsonify({"success": False, "error": "Tag name is required"}), 400
     try:
-        tag = tags_create_tag(name, color, description)
+        tag = _run_async(tags_create_tag(name, color, description))
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 409
     return jsonify({"success": True, "tag": tag})
@@ -353,7 +353,7 @@ def api_admin_video_tags_assign(token: str):
         if not tag_name:
             continue
         try:
-            created = tags_assign_tag_to_video(tag_name, token)
+            created = _run_async(tags_assign_tag_to_video(tag_name, token))
             results.append({"tag": tag_name, "assigned": True, "created": created})
         except ValueError as e:
             results.append({"tag": tag_name, "assigned": False, "error": str(e)})
@@ -379,7 +379,7 @@ def api_admin_videos_batch_tags():
             if not tag_name:
                 continue
             try:
-                created = tags_assign_tag_to_video(tag_name, token)
+                created = _run_async(tags_assign_tag_to_video(tag_name, token))
                 token_result["tags"].append({"tag": tag_name, "assigned": True, "created": created})
             except ValueError as e:
                 token_result["tags"].append({"tag": tag_name, "assigned": False, "error": str(e)})
@@ -447,7 +447,7 @@ def api_search_advanced():
 
     token_pool = None
     if tag:
-        token_pool = set(tags_get_videos_by_tag(tag))
+        token_pool = set(_run_async(tags_get_videos_by_tag(tag)))
 
     results = []
     for video in videos:

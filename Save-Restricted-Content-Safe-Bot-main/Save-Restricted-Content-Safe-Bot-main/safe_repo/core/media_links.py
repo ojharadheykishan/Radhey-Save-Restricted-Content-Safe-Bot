@@ -15,10 +15,20 @@ from safe_repo.core import object_storage
 logger = logging.getLogger(__name__)
 _STREAM_CACHE_DIR = None
 _WARNED_UNMOUNTED_RAILWAY_DATA = False
-try:
-    _CLEANUP_MAX_AGE_HOURS = max(1, int(os.environ.get("STREAM_CACHE_MAX_AGE_HOURS", "7")))
-except (TypeError, ValueError):
-    _CLEANUP_MAX_AGE_HOURS = 7
+
+
+def _env_hours(name, default=0):
+    """Read a retention window in hours. 0 means "keep forever"."""
+    try:
+        return max(0, int(os.environ.get(name, "") or default))
+    except (TypeError, ValueError):
+        return default
+
+
+# Media files live on the mounted volume, so they are kept until the cache quota
+# forces a trim. Catalog entries are metadata for links that must stay online.
+_CLEANUP_MAX_AGE_HOURS = _env_hours("STREAM_CACHE_MAX_AGE_HOURS", 0)
+_CATALOG_MAX_AGE_HOURS = _env_hours("STREAM_CATALOG_MAX_AGE_HOURS", 0)
 
 
 def _get_shared_repo_dir():
@@ -426,7 +436,11 @@ def append_stream_link(player_url, stream_url, label="stream", archive_path=None
         "approved": bool(approved),
     }
     entries.append(entry)
-    write_stream_entries(entries, catalog_path=catalog_path)
+    if catalog_path is None:
+        # Upsert only the new record so a concurrent catalog read can never
+        # delete links that another process added in the meantime.
+        upsert_stream_entry(entry)
+    write_stream_entries(entries, catalog_path=catalog_path, mongo_sync=False)
 
     return str(archive_file)
 
@@ -469,8 +483,14 @@ async def read_stream_entries_async(catalog_path=None):
                     coll = db["stream_catalog"]
                     docs = await coll.find({}).sort("timestamp", -1).to_list(length=100000)
                     entries = []
+                    seen_tokens = set()
                     for doc in docs:
                         doc.pop("_id", None)
+                        token = str(doc.get("token") or "")
+                        if token and token in seen_tokens:
+                            continue
+                        if token:
+                            seen_tokens.add(token)
                         entries.append(_sanitize_for_json(doc))
                     if entries:
                         return entries
@@ -481,7 +501,7 @@ async def read_stream_entries_async(catalog_path=None):
 
 
 async def _mongo_write_catalog(entries):
-    """Async: Write all catalog entries to MongoDB."""
+    """Async: upsert entries into MongoDB keyed by token (never wipes the collection)."""
     try:
         from safe_repo.core.mongo.mongo_client import get_mongo_db, is_mongo_available
         if not is_mongo_available(force=True):
@@ -490,17 +510,11 @@ async def _mongo_write_catalog(entries):
         if db is None:
             return
         coll = db["stream_catalog"]
-        sanitized = _sanitize_for_json(entries)
-        await coll.delete_many({})
-        if sanitized:
+        for entry in _index_entries_by_token(entries):
             try:
-                await coll.insert_many(sanitized, ordered=False)
+                await coll.replace_one({"token": entry["token"]}, entry, upsert=True)
             except Exception:
-                for entry in sanitized:
-                    try:
-                        await coll.insert_one(entry)
-                    except Exception:
-                        pass
+                await coll.update_one({"token": entry["token"]}, {"$set": entry}, upsert=True)
     except Exception as e:
         logger.warning(f"MongoDB async write failed: {e}")
 
@@ -509,7 +523,7 @@ async def write_stream_entries_async(entries, catalog_path=None):
     """Async: Write catalog entries to MongoDB (primary) and local JSON (backup)."""
     if catalog_path is None:
         await _mongo_write_catalog(entries)
-    write_stream_entries(entries, catalog_path=catalog_path)
+    write_stream_entries(entries, catalog_path=catalog_path, mongo_sync=False)
 
 
 def _mongo_read_sync():
@@ -520,36 +534,210 @@ def _mongo_read_sync():
     try:
         docs = list(coll.find({}, {"_id": 0}).sort("timestamp", -1))
         if docs:
-            entries = [_sanitize_for_json(doc) for doc in docs]
+            entries = []
+            seen_tokens = set()
+            for doc in docs:
+                token = str(doc.get("token") or "")
+                if token and token in seen_tokens:
+                    continue
+                if token:
+                    seen_tokens.add(token)
+                entries.append(_sanitize_for_json(doc))
             return entries
     except Exception as e:
         logger.debug(f"MongoDB sync read failed: {e}")
     return None
 
 
+def _index_entries_by_token(entries):
+    """Return sanitized entries keyed by token, dropping records without one."""
+    indexed = {}
+    for entry in _sanitize_for_json(entries or []):
+        if not isinstance(entry, dict):
+            continue
+        token = str(entry.get("token") or "").strip()
+        if not token:
+            continue
+        indexed[token] = entry
+    return indexed
+
+
+def _dedupe_token_documents(coll, token):
+    """Drop duplicate documents for one token, keeping the newest one."""
+    try:
+        duplicates = list(coll.find({"token": token}, {"_id": 1}))
+    except Exception:
+        return
+    if len(duplicates) <= 1:
+        return
+    keep = duplicates[-1].get("_id")
+    if keep is None:
+        return
+    try:
+        removed = coll.delete_many({"token": token, "_id": {"$ne": keep}})
+        if getattr(removed, "deleted_count", 0):
+            logger.warning(f"Removed {removed.deleted_count} duplicate stream_catalog documents for token {token}")
+    except Exception as e:
+        logger.debug(f"Could not de-duplicate token {token}: {e}")
+
+
 def _mongo_write_sync(entries):
-    """Sync: Write entries to MongoDB using sync pymongo."""
+    """Sync: upsert entries into MongoDB keyed by token.
+
+    Entries are never dropped here: a partial read used to be written back with
+    ``delete_many({})``, which silently removed every saved link from the site.
+    Use :func:`remove_stream_entries` for explicit deletions.
+    """
     coll = _mongo_catalog_coll()
     if coll is None:
-        logger.info(f"MongoDB not available, skipping write ({len(entries)} entries)")
+        logger.info(f"MongoDB not available, skipping write ({len(entries or [])} entries)")
         return False
     try:
-        sanitized = _sanitize_for_json(entries)
-        coll.delete_many({})
-        if sanitized:
-            coll.insert_many(sanitized, ordered=False)
-        logger.info(f"MongoDB write succeeded: {len(sanitized)} entries in stream_catalog")
+        indexed = _index_entries_by_token(entries)
+        if not indexed:
+            logger.warning("MongoDB write skipped: no entries with a token in the incoming list")
+            return False
+        for token, entry in indexed.items():
+            _dedupe_token_documents(coll, token)
+            try:
+                coll.replace_one({"token": token}, entry, upsert=True)
+            except Exception:
+                coll.update_one({"token": token}, {"$set": entry}, upsert=True)
+        logger.info(f"MongoDB write succeeded: {len(indexed)} entries upserted in stream_catalog")
         return True
     except Exception as e:
         logger.warning(f"MongoDB sync write failed: {e}")
+        return False
+
+
+def upsert_stream_entry(entry):
+    """Insert or replace a single catalog entry in MongoDB, keyed by token."""
+    if not entry or entry.get("token") in (None, ""):
+        return None
+    coll = _mongo_catalog_coll()
+    if coll is None:
+        return None
+    sanitized = _sanitize_for_json(entry)
+    try:
+        coll.replace_one({"token": str(sanitized["token"])}, sanitized, upsert=True)
+        return sanitized
+    except Exception as e:
+        logger.warning(f"MongoDB upsert failed for token {sanitized.get('token')}: {e}")
+        return None
+
+
+def _patch_local_catalog(token, updates=None, remove=False):
+    """Apply a single-entry change to the local JSON backup of the catalog."""
+    if not token:
+        return None
+    catalog_file = Path(get_catalog_path())
+    if not catalog_file.exists():
+        return None
+    try:
+        data = json.loads(catalog_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, list):
+        return None
+
+    matched = None
+    for entry in data:
+        if isinstance(entry, dict) and str(entry.get("token")) == str(token):
+            matched = entry
+            break
+
+    if remove:
+        data = [entry for entry in data if not (isinstance(entry, dict) and str(entry.get("token")) == str(token))]
+    elif updates:
+        if matched is not None:
+            matched.update(updates)
+
+    try:
+        temporary_file = catalog_file.with_suffix(catalog_file.suffix + ".tmp")
+        temporary_file.write_bytes(json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8"))
+        temporary_file.replace(catalog_file)
+    except OSError as e:
+        logger.debug(f"Could not update local catalog backup: {e}")
+    return matched
+
+
+def update_stream_entry(token, updates):
+    """Update one catalog entry without rewriting (or risking) the whole catalog."""
+    if not token or not updates:
+        return None
+    token = str(token)
+    payload = {key: value for key, value in _sanitize_for_json(updates).items() if key not in ("token", "_id")}
+    if not payload:
+        return None
+
+    coll = _mongo_catalog_coll()
+    if coll is not None:
         try:
-            for entry in _sanitize_for_json(entries):
-                coll.insert_one(entry)
-            logger.info(f"MongoDB write retry succeeded: {len(entries)} entries")
-            return True
-        except Exception as e2:
-            logger.error(f"MongoDB write retry failed: {e2}")
-            return False
+            coll.update_one({"token": token}, {"$set": payload}, upsert=False)
+        except Exception as e:
+            logger.warning(f"MongoDB update failed for token {token}: {e}")
+    return _patch_local_catalog(token, payload)
+
+
+def increment_stream_entry_field(token, field, amount=1):
+    """Atomically increment a numeric field (e.g. views) on a single entry."""
+    if not token or not field:
+        return None
+    token = str(token)
+    amount = int(amount)
+    coll = _mongo_catalog_coll()
+    if coll is None:
+        # JSON fallback: no concurrent writer to race with, so patch in place.
+        catalog_file = Path(get_catalog_path())
+        if not catalog_file.exists():
+            return None
+        try:
+            data = json.loads(catalog_file.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        for entry in data if isinstance(data, list) else []:
+            if isinstance(entry, dict) and str(entry.get("token")) == token:
+                value = int(entry.get(field) or 0) + amount
+                entry[field] = value
+                temporary_file = catalog_file.with_suffix(catalog_file.suffix + ".tmp")
+                temporary_file.write_bytes(json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8"))
+                temporary_file.replace(catalog_file)
+                return value
+        return None
+    try:
+        from pymongo import ReturnDocument
+        document = coll.find_one_and_update(
+            {"token": token},
+            {"$inc": {str(field): amount}},
+            return_document=ReturnDocument.AFTER,
+        )
+    except Exception as e:
+        logger.warning(f"MongoDB increment failed for token {token}.{field}: {e}")
+        return None
+    if not document:
+        return None
+    value = int(document.get(field) or 0)
+    _patch_local_catalog(token, {field: value})
+    return value
+
+
+def remove_stream_entries(tokens):
+    """Delete the given tokens from MongoDB and the local JSON backup."""
+    token_list = [str(token).strip() for token in (tokens or []) if str(token).strip()]
+    if not token_list:
+        return 0
+    removed = 0
+    coll = _mongo_catalog_coll()
+    if coll is not None:
+        try:
+            result = coll.delete_many({"token": {"$in": token_list}})
+            removed = int(getattr(result, "deleted_count", 0) or 0)
+        except Exception as e:
+            logger.warning(f"MongoDB delete failed for {len(token_list)} tokens: {e}")
+    for token in token_list:
+        _patch_local_catalog(token, remove=True)
+    logger.info(f"Removed {len(token_list)} stream_catalog entries")
+    return removed or len(token_list)
 
 
 def read_stream_entries(catalog_path=None):
@@ -590,11 +778,11 @@ def read_stream_entries(catalog_path=None):
     return []
 
 
-def write_stream_entries(entries, catalog_path=None):
-    """Write catalog to MongoDB (primary) and local JSON file (backup)."""
-    if catalog_path is None:
+def write_stream_entries(entries, catalog_path=None, mongo_sync=True):
+    """Write catalog to MongoDB (primary, upsert by token) and local JSON file (backup)."""
+    if catalog_path is None and mongo_sync:
         _mongo_write_sync(entries)
-        logger.info(f"write_stream_entries: wrote {len(entries)} entries to MongoDB + JSON backup")
+        logger.info(f"write_stream_entries: synced {len(entries or [])} entries to MongoDB + JSON backup")
 
     catalog_file = Path(get_catalog_path(catalog_path))
     catalog_file.parent.mkdir(parents=True, exist_ok=True)
@@ -728,15 +916,19 @@ def get_stream_thumbnail(token):
 
 
 def cleanup_old_stream_files(max_age_hours=None, cache_dir=None):
-    """Remove cached stream files older than max_age_hours."""
+    """Remove cached stream files older than max_age_hours (0 keeps every file)."""
     import logging
     logger = logging.getLogger(__name__)
 
     if max_age_hours is None:
-        try:
-            max_age_hours = int(os.environ.get("STREAM_CACHE_MAX_AGE_HOURS", _CLEANUP_MAX_AGE_HOURS))
-        except (TypeError, ValueError):
-            max_age_hours = _CLEANUP_MAX_AGE_HOURS
+        max_age_hours = _CLEANUP_MAX_AGE_HOURS
+    try:
+        max_age_hours = int(max_age_hours)
+    except (TypeError, ValueError):
+        max_age_hours = _CLEANUP_MAX_AGE_HOURS
+    if max_age_hours <= 0:
+        logger.debug("Stream file cleanup disabled (STREAM_CACHE_MAX_AGE_HOURS=0)")
+        return 0
 
     cache_path = Path(_get_cache_dir(cache_dir))
     if not cache_path.exists():
@@ -762,12 +954,19 @@ def cleanup_old_stream_files(max_age_hours=None, cache_dir=None):
 
 
 def cleanup_old_catalog_entries(max_age_hours=None, catalog_path=None):
-    """Remove catalog entries older than max_age_hours."""
+    """Remove catalog entries older than max_age_hours (0 keeps every entry)."""
     import logging
     logger = logging.getLogger(__name__)
 
     if max_age_hours is None:
-        max_age_hours = _CLEANUP_MAX_AGE_HOURS
+        max_age_hours = _CATALOG_MAX_AGE_HOURS
+    try:
+        max_age_hours = int(max_age_hours)
+    except (TypeError, ValueError):
+        max_age_hours = _CATALOG_MAX_AGE_HOURS
+    if max_age_hours <= 0:
+        logger.debug("Catalog cleanup disabled (STREAM_CATALOG_MAX_AGE_HOURS=0): saved links are kept forever")
+        return 0
 
     catalog_file = Path(get_catalog_path(catalog_path))
     if catalog_path is not None and not catalog_file.exists():
@@ -804,7 +1003,13 @@ def cleanup_old_archive_entries(max_age_hours=None, archive_path=None):
     logger = logging.getLogger(__name__)
 
     if max_age_hours is None:
-        max_age_hours = _CLEANUP_MAX_AGE_HOURS
+        max_age_hours = _CATALOG_MAX_AGE_HOURS
+    try:
+        max_age_hours = int(max_age_hours)
+    except (TypeError, ValueError):
+        max_age_hours = _CATALOG_MAX_AGE_HOURS
+    if max_age_hours <= 0:
+        return 0
 
     archive_file = Path(get_archive_path(archive_path))
     if not archive_file.exists():
@@ -882,13 +1087,20 @@ def cleanup_orphaned_temp_files(max_age_hours=2, work_dir=None):
     return removed
 
 
-def run_full_cleanup(max_age_hours=None):
-    """Run all cleanup tasks. Returns total removed items."""
+def run_full_cleanup(max_age_hours=None, catalog_max_age_hours=None):
+    """Run all cleanup tasks. Returns total removed items.
+
+    Media files and catalog entries are kept forever unless a positive retention
+    window is configured, because deleting them takes saved links offline.
+    """
     if max_age_hours is None:
         max_age_hours = _CLEANUP_MAX_AGE_HOURS
+    if catalog_max_age_hours is None:
+        catalog_max_age_hours = _CATALOG_MAX_AGE_HOURS
     total = 0
     total += cleanup_old_stream_files(max_age_hours=max_age_hours)
-    total += cleanup_old_catalog_entries(max_age_hours=max_age_hours)
-    total += cleanup_old_archive_entries(max_age_hours=max_age_hours)
-    total += cleanup_orphaned_temp_files(max_age_hours=max(1, max_age_hours // 3))
+    total += cleanup_old_catalog_entries(max_age_hours=catalog_max_age_hours)
+    total += cleanup_old_archive_entries(max_age_hours=catalog_max_age_hours)
+    if max_age_hours > 0:
+        total += cleanup_orphaned_temp_files(max_age_hours=max(1, max_age_hours // 3))
     return total
