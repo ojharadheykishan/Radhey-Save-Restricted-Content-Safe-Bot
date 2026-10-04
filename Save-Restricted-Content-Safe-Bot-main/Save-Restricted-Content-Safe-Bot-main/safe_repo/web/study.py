@@ -210,12 +210,18 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
         categories[category] = categories.get(category, 0) + 1
         folder = video.get("folder") or "General"
         folders[folder] = folders.get(folder, 0) + 1
-        folder_tree_map.setdefault(folder, {"name": folder, "count": 0, "subfolders": {}})
+        folder_tree_map.setdefault(folder, {"name": folder, "count": 0, "subfolders": {}, "thumbnails": []})
         folder_tree_map[folder]["count"] += 1
+        thumbnail_url = video.get("thumbnail_url")
+        if thumbnail_url and len(folder_tree_map[folder]["thumbnails"]) < 4:
+            folder_tree_map[folder]["thumbnails"].append(thumbnail_url)
         subfolder = video.get("subfolder") or ""
         if subfolder:
             subfolders = folder_tree_map[folder]["subfolders"]
-            subfolders[subfolder] = subfolders.get(subfolder, 0) + 1
+            subfolder_data = subfolders.setdefault(subfolder, {"count": 0, "thumbnails": []})
+            subfolder_data["count"] += 1
+            if thumbnail_url and len(subfolder_data["thumbnails"]) < 4:
+                subfolder_data["thumbnails"].append(thumbnail_url)
 
     playlists = []
     playlist_map = {}
@@ -262,9 +268,17 @@ def build_video_index(catalog_path: Optional[str] = None, subject: Optional[str]
             {
                 "name": name,
                 "count": data["count"],
+                "thumbnails": data["thumbnails"],
                 "subfolders": [
-                    {"name": subfolder, "count": count}
-                    for subfolder, count in sorted(data["subfolders"].items(), key=lambda item: (-item[1], item[0]))
+                    {
+                        "name": subfolder,
+                        "count": subfolder_data["count"],
+                        "thumbnails": subfolder_data["thumbnails"],
+                    }
+                    for subfolder, subfolder_data in sorted(
+                        data["subfolders"].items(),
+                        key=lambda item: (-item[1]["count"], item[0]),
+                    )
                 ],
             }
             for name, data in sorted(folder_tree_map.items(), key=lambda item: (-item[1]["count"], item[0]))

@@ -572,6 +572,38 @@
     },
   };
 
+  const FolderBrowserView = {
+    init() {
+      const browser = document.querySelector('[data-folder-browser]');
+      if (!browser) return;
+
+      const buttons = [...document.querySelectorAll('[data-folder-view-option]')];
+      const applyView = (view) => {
+        const selectedView = view === 'list' ? 'list' : 'grid';
+        browser.dataset.folderView = selectedView;
+        buttons.forEach((button) => {
+          button.setAttribute('aria-pressed', String(button.dataset.folderViewOption === selectedView));
+        });
+        try {
+          localStorage.setItem('study-by-radhey-folder-view', selectedView);
+        } catch (_) {
+          // The toggle still works when browser storage is unavailable.
+        }
+      };
+
+      let savedView = 'grid';
+      try {
+        savedView = localStorage.getItem('study-by-radhey-folder-view') || savedView;
+      } catch (_) {
+        // Use thumbnail view when browser storage is unavailable.
+      }
+      applyView(savedView);
+      buttons.forEach((button) => {
+        button.addEventListener('click', () => applyView(button.dataset.folderViewOption));
+      });
+    },
+  };
+
   const PushNotifications = {
     async init() {
       const button = document.getElementById('push-notification-btn');
@@ -656,6 +688,7 @@
     FooterStats.init();
     SmoothScroll.init();
     FolderFilters.init();
+    FolderBrowserView.init();
     PushNotifications.init();
 
     // Add loaded class for initial animations

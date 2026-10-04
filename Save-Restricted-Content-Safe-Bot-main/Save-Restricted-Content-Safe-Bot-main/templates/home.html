@@ -1,17 +1,179 @@
 {% extends "base.html" %}
 
-{% block title %}Home{% endblock %}
+{% block title %}Study-By Radhey{% endblock %}
 
 {% block extra_head %}
 <style>
     .hero-gradient {
-        background: linear-gradient(120deg, #123c47 0%, #167c78 48%, #b65e50 100%);
-        background-size: 200% 200%;
-        animation: gradientShift 8s ease infinite;
+        background: linear-gradient(120deg, rgba(16, 46, 49, 0.98), rgba(18, 91, 82, 0.95) 56%, rgba(125, 68, 58, 0.94));
     }
-    @keyframes gradientShift {
-        0%, 100% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
+    .hero-intro-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(240px, 0.72fr);
+        align-items: center;
+        gap: 2rem;
+    }
+    .hero-media-preview {
+        position: relative;
+        display: block;
+        overflow: hidden;
+        aspect-ratio: 16 / 9;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(214, 239, 112, 0.24), rgba(251, 141, 114, 0.25));
+    }
+    .hero-media-preview img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 450ms ease;
+    }
+    .hero-media-preview:hover img { transform: scale(1.04); }
+    .hero-media-fallback {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 3rem;
+    }
+    .hero-media-caption {
+        position: absolute;
+        inset: auto 0 0;
+        padding: 2.5rem 1rem 1rem;
+        background: linear-gradient(transparent, rgba(7, 18, 20, 0.9));
+    }
+    .hero-eyebrow {
+        color: #d6ef70;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+    }
+    .folder-view-toggle {
+        display: inline-flex;
+        padding: 4px;
+        gap: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.04);
+    }
+    .folder-view-toggle button {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 38px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 7px;
+        color: #a3b2b4;
+        background: transparent;
+        cursor: pointer;
+    }
+    .folder-view-toggle button[aria-pressed="true"] {
+        color: #f6faf8;
+        background: rgba(66, 214, 197, 0.18);
+    }
+    .folder-grid {
+        display: grid;
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+        gap: 16px;
+    }
+    .folder-card {
+        overflow: hidden;
+        border: 1px solid rgba(214, 239, 224, 0.12);
+        border-radius: 10px;
+        background: rgba(19, 31, 36, 0.78);
+        box-shadow: 0 10px 30px rgba(4, 13, 16, 0.18);
+        transition: border-color 180ms ease, transform 180ms ease, background 180ms ease;
+    }
+    .folder-card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(66, 214, 197, 0.4);
+        background: rgba(24, 42, 46, 0.94);
+    }
+    .folder-card-cover {
+        position: relative;
+        display: block;
+        overflow: hidden;
+        aspect-ratio: 16 / 9;
+        background: linear-gradient(135deg, rgba(66, 214, 197, 0.2), rgba(251, 141, 114, 0.16));
+    }
+    .folder-cover-grid {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        grid-template-rows: repeat(2, 1fr);
+        gap: 2px;
+    }
+    .folder-cover-grid img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .folder-cover-empty {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        color: rgba(214, 239, 112, 0.9);
+        font-size: 2.5rem;
+    }
+    .folder-cover-shade {
+        position: absolute;
+        inset: 30% 0 0;
+        background: linear-gradient(transparent, rgba(7, 18, 20, 0.8));
+    }
+    .folder-card-body { padding: 16px; }
+    .folder-name-link { color: #f6faf8; transition: color 150ms ease; }
+    .folder-name-link:hover { color: #42d6c5; }
+    .subfolder-list { display: grid; gap: 8px; margin-top: 14px; }
+    .subfolder-link {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        padding: 8px;
+        border-radius: 8px;
+        color: #a3b2b4;
+        background: rgba(255, 255, 255, 0.035);
+        transition: color 150ms ease, background 150ms ease;
+    }
+    .subfolder-link:hover { color: #f6faf8; background: rgba(66, 214, 197, 0.1); }
+    .subfolder-preview {
+        position: relative;
+        display: grid;
+        flex: 0 0 42px;
+        width: 42px;
+        aspect-ratio: 1;
+        place-items: center;
+        overflow: hidden;
+        border-radius: 6px;
+        color: #d6ef70;
+        background: rgba(66, 214, 197, 0.12);
+    }
+    .subfolder-preview img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    [data-folder-browser][data-folder-view="list"] .folder-grid { display: flex; flex-direction: column; }
+    [data-folder-browser][data-folder-view="list"] .folder-card { display: grid; grid-template-columns: minmax(160px, 240px) minmax(0, 1fr); }
+    [data-folder-browser][data-folder-view="list"] .folder-card-cover { height: 100%; min-height: 150px; aspect-ratio: auto; }
+    [data-folder-browser][data-folder-view="list"] .subfolder-list { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+    @media (min-width: 640px) {
+        .folder-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (min-width: 1024px) {
+        .folder-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 700px) {
+        .hero-intro-grid { grid-template-columns: 1fr; gap: 1.25rem; }
+        .hero-media-preview { max-height: 210px; }
+    }
+    @media (max-width: 560px) {
+        [data-folder-browser][data-folder-view="list"] .folder-card { grid-template-columns: 1fr; }
+        [data-folder-browser][data-folder-view="list"] .folder-card-cover { min-height: 0; aspect-ratio: 16 / 7; }
+        .folder-view-toggle button { padding: 0 10px; }
     }
     .video-card {
         transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -78,17 +240,32 @@
 {% endblock %}
 
 {% block content %}
+{% if featured %}{% set hero_item = featured[0] %}{% elif latest %}{% set hero_item = latest[0] %}{% else %}{% set hero_item = none %}{% endif %}
 <!-- Hero Section -->
 <section class="mb-16">
-    <div class="hero-gradient rounded-3xl p-8 md:p-12 relative overflow-hidden shadow-2xl">
-        <div class="absolute inset-0 bg-black/20"></div>
+    <div class="hero-gradient rounded-2xl p-6 md:p-10 relative overflow-hidden shadow-2xl">
+        <div class="absolute inset-0 bg-black/15"></div>
         <div class="relative z-10">
-            <h1 class="font-display text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 leading-tight">
-                StudyHub <span class="text-cyan">by Safe Repo</span>
-            </h1>
-            <p class="text-slate-200 text-lg md:text-xl mb-8 max-w-2xl leading-relaxed">
-                Premium study videos, subject-wise playlists, and instant public playback links from the same media archive.
-            </p>
+            <div class="hero-intro-grid mb-8">
+                <div>
+                    <p class="hero-eyebrow mb-3">Your learning library</p>
+                    <h1 class="font-display text-4xl md:text-5xl font-bold text-white mb-4 leading-tight">Study-By Radhey</h1>
+                    <p class="text-slate-200 text-base md:text-lg mb-6 max-w-xl leading-relaxed">
+                        Find lessons by subject, open a folder, and pick up right where you want to study.
+                    </p>
+                    <a href="#folder-browser" class="inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-lime text-deep font-semibold hover:bg-white transition-colors">
+                        Browse the library <i class="fas fa-arrow-down text-sm"></i>
+                    </a>
+                </div>
+                <a href="{{ hero_item.watch_url if hero_item else '#library' }}" class="hero-media-preview" aria-label="{% if hero_item %}Open {{ hero_item.title }}{% else %}Browse the study library{% endif %}">
+                    <div class="hero-media-fallback"><i class="fas fa-play-circle"></i></div>
+                    {% if hero_item and hero_item.thumbnail_url %}<img src="{{ hero_item.thumbnail_url }}" alt="{{ hero_item.title }}" onerror="this.remove()">{% endif %}
+                    <div class="hero-media-caption">
+                        <span class="text-lime text-xs font-semibold uppercase">{% if hero_item %}Featured lesson{% else %}Study library{% endif %}</span>
+                        <p class="text-white font-semibold truncate">{{ hero_item.title if hero_item else 'Explore your study folders' }}</p>
+                    </div>
+                </a>
+            </div>
 
             {% if filter_summary.subject or filter_summary.date or filter_summary.q or filter_summary.folder or filter_summary.subfolder or filter_summary.playlist or filter_summary.media_type %}
             <div class="glass-card inline-block px-4 py-2 rounded-full mb-6">
@@ -230,39 +407,66 @@
 
 <!-- Folder browser -->
 {% if folder_tree %}
-<section class="mb-16 section-animate">
+<section class="mb-16 section-animate" id="folder-browser">
     <div class="flex items-center justify-between mb-6">
         <h2 class="font-display text-2xl md:text-3xl font-bold text-white flex items-center gap-3">
             <i class="fas fa-folder-tree text-cyan"></i>
-            Browse folders
+            Library folders
         </h2>
-        <a href="/?" class="text-sm text-slate-400 hover:text-white">All videos</a>
-    </div>
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-        {% for folder in folder_tree %}
-        <div class="glass-card rounded-2xl p-5">
-            <a href="/?folder={{ folder.name|urlencode }}" class="flex items-center justify-between group">
-                <span class="font-semibold text-white group-hover:text-cyan">{{ folder.name }}</span>
-                <span class="text-xs text-slate-400">{{ folder.count }} items</span>
-            </a>
-            {% if folder.subfolders %}
-            <div class="mt-4 space-y-2 border-t border-white/10 pt-3">
-                {% for subfolder in folder.subfolders %}
-                <a href="/?folder={{ folder.name|urlencode }}&subfolder={{ subfolder.name|urlencode }}" class="flex items-center justify-between text-sm text-slate-400 hover:text-cyan">
-                    <span><i class="fas fa-folder-open mr-2 text-cyan/70"></i>{{ subfolder.name }}</span>
-                    <span class="text-xs">{{ subfolder.count }}</span>
-                </a>
-                {% endfor %}
+        <div class="flex items-center gap-3">
+            <a href="/?" class="text-sm text-slate-400 hover:text-white">All videos</a>
+            <div class="folder-view-toggle" role="group" aria-label="Folder display mode">
+                <button type="button" data-folder-view-option="grid" aria-pressed="true" title="Thumbnail view">
+                    <i class="fas fa-th-large" aria-hidden="true"></i><span>Thumbnails</span>
+                </button>
+                <button type="button" data-folder-view-option="list" aria-pressed="false" title="List view">
+                    <i class="fas fa-list" aria-hidden="true"></i><span>List</span>
+                </button>
             </div>
-            {% endif %}
         </div>
-        {% endfor %}
+    </div>
+    <div class="folder-browser" data-folder-browser data-folder-view="grid">
+        <div class="folder-grid">
+            {% for folder in folder_tree %}
+            <article class="folder-card">
+                <a href="/?folder={{ folder.name|urlencode }}" class="folder-card-cover" aria-label="Open {{ folder.name }} folder">
+                    <div class="folder-cover-empty"><i class="fas fa-folder-open"></i></div>
+                    {% if folder.thumbnails %}
+                    <div class="folder-cover-grid">
+                        {% for thumbnail in folder.thumbnails[:4] %}<img src="{{ thumbnail }}" alt="" loading="lazy" onerror="this.remove()">{% endfor %}
+                    </div>
+                    {% endif %}
+                    <div class="folder-cover-shade"></div>
+                </a>
+                <div class="folder-card-body">
+                    <a href="/?folder={{ folder.name|urlencode }}" class="flex items-center justify-between gap-3 folder-name-link">
+                        <span class="font-semibold truncate">{{ folder.name }}</span>
+                        <span class="text-xs text-slate-400 whitespace-nowrap">{{ folder.count }} items</span>
+                    </a>
+                    {% if folder.subfolders %}
+                    <div class="subfolder-list">
+                        {% for subfolder in folder.subfolders %}
+                        <a href="/?folder={{ folder.name|urlencode }}&subfolder={{ subfolder.name|urlencode }}" class="subfolder-link">
+                            <span class="subfolder-preview">
+                                <i class="fas fa-folder" aria-hidden="true"></i>
+                                {% if subfolder.thumbnails %}<img src="{{ subfolder.thumbnails[0] }}" alt="" loading="lazy" onerror="this.remove()">{% endif %}
+                            </span>
+                            <span class="min-w-0 flex-1 truncate text-sm">{{ subfolder.name }}</span>
+                            <span class="text-xs">{{ subfolder.count }}</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% else %}<p class="mt-3 text-xs text-slate-500">No subfolders</p>{% endif %}
+                </div>
+            </article>
+            {% endfor %}
+        </div>
     </div>
 </section>
 {% endif %}
 
 <!-- Full public library -->
-<section class="mb-16 section-animate">
+<section class="mb-16 section-animate" id="library">
     <div class="flex items-center justify-between mb-6">
         <h2 class="font-display text-2xl md:text-3xl font-bold text-white flex items-center gap-3">
             <i class="fas fa-film text-electric"></i>

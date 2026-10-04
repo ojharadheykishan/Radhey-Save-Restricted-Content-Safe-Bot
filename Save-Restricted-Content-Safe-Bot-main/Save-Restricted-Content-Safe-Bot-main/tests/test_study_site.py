@@ -67,6 +67,9 @@ def test_home_route_renders_filtered_catalog_for_subject_date_queries(monkeypatc
     assert 'src="/thumbnail/one"' in html
     assert 'aria-label="Filter by folder"' in html
     assert 'aria-label="Filter by subfolder"' in html
+    assert "Study-By Radhey" in html
+    assert 'data-folder-view-option="grid"' in html
+    assert 'data-folder-view-option="list"' in html
 
 
 def test_public_library_groups_media_by_source_date(tmp_path, monkeypatch):
@@ -100,6 +103,24 @@ def test_folder_selector_exposes_existing_subfolder_and_keeps_filters(tmp_path, 
     assert response.status_code == 200
     assert '<option value="Physics" selected>' in html
     assert '<option value="Mechanics" data-folder="Physics" selected>' in html
+
+
+def test_folder_tree_includes_representative_video_thumbnails(tmp_path):
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(json.dumps([
+        {
+            "token": "lesson-one",
+            "title": "Lesson one",
+            "folder": "Physics",
+            "subfolder": "Mechanics",
+            "thumbnail_url": "/thumbnail/lesson-one",
+        },
+    ]), encoding="utf-8")
+
+    folder = build_video_index(str(catalog_path))["folder_tree"][0]
+
+    assert folder["thumbnails"] == ["/thumbnail/lesson-one"]
+    assert folder["subfolders"][0]["thumbnails"] == ["/thumbnail/lesson-one"]
 
 
 def test_build_video_index_groups_latest_and_featured(tmp_path):
