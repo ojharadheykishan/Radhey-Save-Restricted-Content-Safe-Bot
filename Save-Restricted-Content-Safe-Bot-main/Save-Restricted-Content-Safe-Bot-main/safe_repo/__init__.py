@@ -25,7 +25,7 @@ if not hasattr(__import__(__name__), 'app'):
         bot_token=BOT_TOKEN,
         workers=10,  # Reduced from 20 to prevent resource exhaustion
         sleep_threshold=180,  # Reduced from 300s to 3 minutes for faster recovery
-        max_concurrent_transmissions=1,  # Keep at 1 to prevent timeouts
+        max_concurrent_transmissions=4,
         no_updates=False  # Ensure we receive all updates
     )
 

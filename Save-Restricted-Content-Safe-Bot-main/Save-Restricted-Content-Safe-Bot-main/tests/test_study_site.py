@@ -524,6 +524,36 @@ def test_admin_roles_can_be_configured_from_environment(monkeypatch):
         assert session["admin_role"] == "editor"
 
 
+def test_admin_login_returns_to_safe_review_link(monkeypatch):
+    monkeypatch.setenv("STUDY_ADMIN_USERS", json.dumps({
+        "library-owner": {"password": "not-a-real-secret", "role": "owner"},
+    }))
+    client = flask_app.test_client()
+
+    response = client.post(
+        "/admin/login?next=%2Fadmin%2Fedit%2Fpending-media",
+        data={"username": "library-owner", "password": "not-a-real-secret"},
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/admin/edit/pending-media")
+
+
+def test_admin_login_rejects_external_return_url(monkeypatch):
+    monkeypatch.setenv("STUDY_ADMIN_USERS", json.dumps({
+        "library-owner": {"password": "not-a-real-secret", "role": "owner"},
+    }))
+    client = flask_app.test_client()
+
+    response = client.post(
+        "/admin/login?next=https%3A%2F%2Fevil.example",
+        data={"username": "library-owner", "password": "not-a-real-secret"},
+    )
+
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/admin/dashboard")
+
+
 def test_push_configuration_requires_vapid_environment(monkeypatch):
     monkeypatch.delenv("VAPID_PUBLIC_KEY", raising=False)
     monkeypatch.delenv("VAPID_PRIVATE_KEY", raising=False)

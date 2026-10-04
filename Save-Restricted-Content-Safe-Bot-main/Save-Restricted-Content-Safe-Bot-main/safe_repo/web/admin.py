@@ -67,6 +67,12 @@ def admin_login_view():
         if role:
             session["is_admin"] = True
             session["admin_role"] = role
+            next_url = (request.args.get("next") or "").strip()
+            edit_prefix = "/admin/edit/"
+            edit_token = next_url[len(edit_prefix):] if next_url.startswith(edit_prefix) else ""
+            safe_edit_token = edit_token.replace("-", "").replace("_", "")
+            if next_url == "/admin/dashboard" or (edit_token and safe_edit_token.isalnum()):
+                return redirect(next_url)
             return redirect("/admin/dashboard")
         error = "Invalid credentials"
     else:

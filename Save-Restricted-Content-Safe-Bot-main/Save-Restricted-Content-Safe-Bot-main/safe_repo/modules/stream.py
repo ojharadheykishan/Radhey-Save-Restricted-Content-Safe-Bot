@@ -3,11 +3,13 @@
 # MX Player / VLC streamable link (t.me/Link09660/MSGID).
 # This module does NOT modify any existing upload/download logic.
 
+import asyncio
 import logging
 import os
 import time
 import uuid
 from datetime import datetime
+from urllib.parse import urlencode
 from pyrogram import filters
 from safe_repo import app
 from config import STREAM_CHANNEL, STREAM_CHANNEL_USERNAME, CLONE_LOG_CHANNEL, PREMIUM_ARCHIVE_CHANNEL
@@ -16,17 +18,23 @@ from safe_repo.core.media_links import append_stream_link, find_duplicate_media,
 from safe_repo.web.study import build_public_study_url
 
 logger = logging.getLogger(__name__)
+_MEDIA_DOWNLOAD_SEMAPHORE = asyncio.Semaphore(4)
+_PROGRESS_PALETTE = ("🟥", "🟧", "🟨", "🟩", "🟦", "🟪")
+_DEFAULT_DIRECT_LINK_THRESHOLD_MB = 256
 
 
-def format_progress_bar(percent, title="Processing", note="Please wait"):
+def format_progress_bar(percent, title="Processing", note="Please wait", frame=0):
     """Create a compact Telegram-friendly progress message."""
     percent = max(0, min(100, int(percent)))
     filled = max(1, int(round(percent / 10)))
     empty = 10 - filled
-    bar = "█" * filled + "░" * empty
+    offset = frame % len(_PROGRESS_PALETTE)
+    bar = "".join(_PROGRESS_PALETTE[(index + offset) % len(_PROGRESS_PALETTE)] for index in range(filled))
+    bar += "⬜" * empty
+    spinner = ("◐", "◓", "◑", "◒")[frame % 4]
     return (
-        f"🎬 {title}\n"
-        f"[{bar}] {percent}%\n"
+        f"{spinner} 🎬 {title}\n"
+        f"{bar} {percent}%\n"
         f"{note}"
     )
 
@@ -49,15 +57,43 @@ async def update_download_progress(current, total, progress_sender, progress_mes
     state["updated_at"] = now
     downloaded_mb = current / (1024 * 1024)
     total_mb = total / (1024 * 1024)
+    state["title"] = "Video mil gaya - downloading"
+    state["note"] = f"{downloaded_mb:.1f} MB / {total_mb:.1f} MB"
     text = format_progress_bar(
         percent,
-        "Video mil gaya - downloading",
-        f"{downloaded_mb:.1f} MB / {total_mb:.1f} MB",
+        state["title"],
+        state["note"],
+        frame=state.get("frame", 0),
     )
     try:
         await app.edit_message_text(progress_sender, progress_message_id, text)
     except Exception as error:
         logger.debug(f"Progress update skipped: {error}")
+
+
+async def animate_download_status(progress_sender, progress_message_id, state):
+    """Keep the status visibly active while queued or waiting for a download chunk."""
+    frame = 0
+    while not state.get("finished"):
+        now = time.monotonic()
+        if now - state.get("updated_at", 0) >= 1.5:
+            state["frame"] = frame
+            try:
+                await app.edit_message_text(
+                    progress_sender,
+                    progress_message_id,
+                    format_progress_bar(
+                        state.get("percent", 0),
+                        state.get("title", "Media received"),
+                        state.get("note", "Waiting for a download slot"),
+                        frame=frame,
+                    ),
+                )
+            except Exception as error:
+                logger.debug(f"Animated progress update skipped: {error}")
+            state["updated_at"] = time.monotonic()
+        frame += 1
+        await asyncio.sleep(1.5)
 
 
 def format_failure_message(reason="Stream setup failed"):
@@ -172,34 +208,74 @@ def has_media_payload(message):
     )
 
 
+def get_message_media_size(message):
+    """Return the Telegram-reported size for downloadable media, if available."""
+    for media_type in ("video", "document", "audio", "animation"):
+        media = getattr(message, media_type, None)
+        file_size = getattr(media, "file_size", None)
+        if file_size:
+            try:
+                return int(file_size)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def should_use_direct_channel_link(message):
+    """Use a server-side Telegram copy for large files instead of downloading them."""
+    try:
+        threshold_mb = max(1, int(os.environ.get(
+            "STREAM_DIRECT_LINK_THRESHOLD_MB",
+            str(_DEFAULT_DIRECT_LINK_THRESHOLD_MB),
+        )))
+    except (TypeError, ValueError):
+        threshold_mb = _DEFAULT_DIRECT_LINK_THRESHOLD_MB
+    media_size = get_message_media_size(message)
+    return media_size is not None and media_size >= threshold_mb * 1024 * 1024
+
+
 async def download_media_payload(client, message, progress_sender=None, progress_message_id=None):
-    """Download media with a fallback for forwarded files."""
+    """Download media with bounded concurrency and a live status heartbeat."""
     file_name = build_local_file_name(message)
     media_file = None
-    progress_state = {"percent": -1, "updated_at": 0}
-
+    progress_state = {
+        "percent": 0,
+        "updated_at": 0,
+        "frame": 0,
+        "title": "Media received",
+        "note": "Waiting for a download slot",
+        "finished": False,
+    }
+    animation_task = None
+    if progress_sender and progress_message_id:
+        animation_task = asyncio.create_task(
+            animate_download_status(progress_sender, progress_message_id, progress_state)
+        )
+    acquired = False
     try:
+        await _MEDIA_DOWNLOAD_SEMAPHORE.acquire()
+        acquired = True
+        progress_state.update(
+            percent=0,
+            updated_at=0,
+            title="Downloading media",
+            note="Connected; starting download",
+        )
         media_file = await client.download_media(
             message,
             file_name=file_name,
             progress=update_download_progress,
             progress_args=(progress_sender, progress_message_id, progress_state),
         )
-    except Exception:
-        try:
-            media_file = await client.download_media(message, file_name=file_name)
-        except Exception:
-            media_file = None
-
-    if not media_file:
-        try:
-            media_file = await message.download(
-                file_name=file_name,
-                progress=update_download_progress,
-                progress_args=(progress_sender, progress_message_id, progress_state),
-            )
-        except Exception:
-            media_file = None
+    except Exception as error:
+        logger.warning("Media download failed for message %s: %s", getattr(message, "id", "unknown"), error)
+    finally:
+        progress_state["finished"] = True
+        if animation_task:
+            animation_task.cancel()
+            await asyncio.gather(animation_task, return_exceptions=True)
+        if acquired:
+            _MEDIA_DOWNLOAD_SEMAPHORE.release()
 
     if progress_sender and progress_message_id and media_file:
         try:
@@ -249,6 +325,19 @@ async def post_to_stream_channel(message):
     except Exception as e:
         logger.error(f"Stream channel post failed: {e}")
         return None
+
+
+async def build_direct_channel_stream_link(message):
+    """Create stream URLs by copying Telegram media without transferring its bytes locally."""
+    result = await post_to_stream_channel(message)
+    if not result:
+        return None
+    return {
+        "source": "channel",
+        "player_url": result["embed"],
+        "stream_url": result["link"],
+        "token": None,
+    }
 
 
 async def archive_media_for_premium(message):
@@ -350,6 +439,24 @@ def build_public_study_link(metadata=None, base_url=None):
     return build_public_study_url(base_url)
 
 
+def build_admin_review_url(token):
+    """Build an admin login URL that resumes at the pending media edit page."""
+    base_url = (
+        os.environ.get("PUBLIC_BASE_URL")
+        or os.environ.get("APP_URL")
+        or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+        or os.environ.get("RAILWAY_STATIC_URL")
+        or os.environ.get("BASE_URL")
+        or os.environ.get("RENDER_EXTERNAL_URL")
+        or os.environ.get("DEFAULT_BASE_URL")
+        or ""
+    ).strip()
+    if base_url and not base_url.startswith(("http://", "https://")):
+        base_url = "https://" + base_url
+    login_url = f"{base_url.rstrip('/')}/admin/login"
+    return f"{login_url}?{urlencode({'next': f'/admin/edit/{token}'})}"
+
+
 def build_stream_reply_text(public_link, study_url=None):
     """Build a Telegram reply that includes both player and website links."""
     lines = [
@@ -430,9 +537,68 @@ async def handle_direct_media(client, message):
         chat_id = message.chat.id
         status_message = await app.send_message(
             chat_id,
-            format_progress_bar(15, "Processing media", "Starting download"),
+            format_progress_bar(0, "Media received", "Waiting for a download slot"),
         )
         logger.info(f"handle_direct_media: sent status message {status_message.id}")
+
+        if should_use_direct_channel_link(message):
+            await app.edit_message_text(
+                chat_id,
+                status_message.id,
+                format_progress_bar(45, "Large file detected", "Creating a Telegram link without downloading the file"),
+            )
+            public_link = await build_direct_channel_stream_link(message)
+            if public_link:
+                metadata = extract_stream_metadata(message, fallback_title="Telegram media")
+                study_url = build_public_study_link(metadata)
+                review_token = uuid.uuid4().hex
+                public_link["token"] = review_token
+                media_type = "pdf" if getattr(getattr(message, "document", None), "mime_type", "") == "application/pdf" else "video"
+                try:
+                    append_stream_link(
+                        public_link["player_url"],
+                        public_link["stream_url"],
+                        label="direct_media",
+                        subject=metadata["subject"],
+                        description=metadata["description"],
+                        title=metadata["title"],
+                        token=review_token,
+                        media_type=media_type,
+                        approved=False,
+                    )
+                except Exception as error:
+                    logger.warning("Could not save large-media link to the catalog: %s", error)
+
+                reply_text = build_stream_reply_text(public_link, study_url=study_url)
+                await app.edit_message_text(
+                    chat_id,
+                    status_message.id,
+                    f"{format_progress_bar(100, 'Fast link ready', 'Telegram copied the file without a local download')}\n\n{reply_text}",
+                )
+
+                try:
+                    await archive_media_for_premium(message)
+                    await archive_stream_link(
+                        message,
+                        public_link["player_url"],
+                        public_link["stream_url"],
+                        study_url=study_url,
+                    )
+                    from safe_repo.web.notifications import notify_new_media
+                    await notify_new_media(
+                        metadata["title"],
+                        build_admin_review_url(review_token),
+                        admin_only=True,
+                    )
+                except Exception as error:
+                    logger.warning("Large-media link post-processing failed: %s", error)
+                return
+
+            await app.edit_message_text(
+                chat_id,
+                status_message.id,
+                "⚠️ Fast Telegram copy unavailable; trying the regular download path now.",
+            )
         
         media_file = await download_media_payload(
             client,
