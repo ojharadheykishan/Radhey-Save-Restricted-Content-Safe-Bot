@@ -2,8 +2,9 @@
 
 ## Current playback behavior
 
-- Videos with a persistent object-storage key use the site's byte-range stream endpoint, which supports browser seeking and direct HTTP playback in compatible external players.
-- When a local cache has no persistent object-storage key, the bot uses a public Telegram channel player link instead of returning a link the separate web process cannot serve.
+- Videos cached locally use the site's byte-range stream endpoint; the Railway Docker deployment runs the bot and web app in the same container, so both processes can access that cache.
+- Object storage keeps cached videos available across redeploys. Without it, locally cached links can stop working after the service replaces its container.
+- If local caching fails, the bot falls back to a public Telegram channel player link; the bot needs permission to post in that channel.
 - Video files sent as Telegram documents keep their real file extension so the stream endpoint returns a useful video MIME type.
 - Videos copied to the public Telegram channel use Telegram's embeddable player in the browser. These Telegram post URLs are not direct VLC/MX Player media URLs.
 - Telegram-fallback catalog entries remain pending admin approval; after approval, the study watch page embeds the Telegram player instead of trying to play the Telegram web page as an HTML5 video source.

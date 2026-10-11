@@ -140,7 +140,7 @@ def test_large_media_handler_skips_local_download(monkeypatch):
     assert notification_kwargs["admin_only"] is True
 
 
-def test_video_without_persistent_storage_uses_telegram_player_link(tmp_path, monkeypatch):
+def test_video_without_persistent_storage_uses_shared_web_cache(tmp_path, monkeypatch):
     source = tmp_path / "lesson.mp4"
     source.write_bytes(b"video")
     cached_media = tmp_path / "cache" / "cached-lesson.mp4"
@@ -156,12 +156,6 @@ def test_video_without_persistent_storage_uses_telegram_player_link(tmp_path, mo
             {"mime_type": "application/octet-stream", "file_name": "lesson.mp4"},
         )()
 
-    async def channel_post(_message):
-        return {
-            "embed": "https://t.me/public_channel/55?embed=1",
-            "link": "https://t.me/public_channel/55",
-        }
-
     monkeypatch.setattr(stream_module, "find_duplicate_media", lambda _path: None)
     monkeypatch.setattr(
         stream_module,
@@ -173,16 +167,44 @@ def test_video_without_persistent_storage_uses_telegram_player_link(tmp_path, mo
             "stream_url": "https://study.example/stream/cached-token",
         },
     )
-    monkeypatch.setattr(stream_module, "post_to_stream_channel", channel_post)
+
+    async def unexpected_channel_post(_message):
+        raise AssertionError("a successful shared cache should not require channel permissions")
+
+    monkeypatch.setattr(stream_module, "post_to_stream_channel", unexpected_channel_post)
 
     public_link = asyncio.run(build_public_stream_link(VideoDocumentMessage(), str(source)))
+
+    assert public_link["source"] == "cache"
+    assert public_link["player_url"] == "https://study.example/player/cached-token"
+    assert public_link["stream_url"] == "https://study.example/stream/cached-token"
+    assert cached_media.exists()
+    assert cached_thumbnail.exists()
+
+
+def test_video_cache_failure_falls_back_to_telegram_player(tmp_path, monkeypatch):
+    source = tmp_path / "lesson.mp4"
+    source.write_bytes(b"video")
+
+    class VideoMessage:
+        video = object()
+
+    async def channel_post(_message):
+        return {
+            "embed": "https://t.me/public_channel/55?embed=1",
+            "link": "https://t.me/public_channel/55",
+        }
+
+    monkeypatch.setattr(stream_module, "find_duplicate_media", lambda _path: None)
+    monkeypatch.setattr(stream_module, "save_stream_file", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(stream_module, "post_to_stream_channel", channel_post)
+
+    public_link = asyncio.run(build_public_stream_link(VideoMessage(), str(source)))
 
     assert public_link["source"] == "channel"
     assert public_link["player_url"] == "https://t.me/public_channel/55?embed=1"
     assert public_link["stream_url"] == "https://t.me/public_channel/55"
     assert public_link["token"]
-    assert not cached_media.exists()
-    assert not cached_thumbnail.exists()
 
 
 def test_video_with_persistent_storage_uses_web_player_link(tmp_path, monkeypatch):
