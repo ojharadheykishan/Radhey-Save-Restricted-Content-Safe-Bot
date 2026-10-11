@@ -538,6 +538,43 @@ def build_stream_response(path, as_attachment=False):
     if not mime_type:
         mime_type = "application/octet-stream"
 
+    def finalize_response(response):
+        response.headers['Content-Type'] = mime_type
+        response.headers['Content-Disposition'] = 'inline' if not as_attachment else 'attachment; filename="%s"' % os.path.basename(path)
+        response.headers['Accept-Ranges'] = 'bytes'
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        return response
+
+    range_header = request.headers.get('Range') if request else None
+    if range_header and range_header.lower().startswith('bytes='):
+        try:
+            size = os.path.getsize(path)
+            if size > 0:
+                unit, _, spec = range_header.partition('=')
+                if unit.lower() == 'bytes' and spec:
+                    start_text, _, end_text = spec.partition('-')
+                    if start_text:
+                        start = int(start_text)
+                        end = size - 1 if not end_text else min(int(end_text), size - 1)
+                    elif end_text:
+                        suffix = int(end_text)
+                        start = max(size - suffix, 0)
+                        end = size - 1
+                    else:
+                        start = 0
+                        end = size - 1
+                    if start <= end:
+                        with open(path, 'rb') as media_file:
+                            media_file.seek(start)
+                            payload = media_file.read(end - start + 1)
+                        response = Response(payload, mimetype=mime_type, status=206)
+                        response.headers['Content-Range'] = f'bytes {start}-{end}/{size}'
+                        response.headers['Content-Length'] = str(len(payload))
+                        return finalize_response(response)
+        except (ValueError, OSError):
+            pass
+
     try:
         response = send_file(
             path,
@@ -556,12 +593,7 @@ def build_stream_response(path, as_attachment=False):
                 conditional=True,
             )
 
-    response.headers['Content-Type'] = mime_type
-    response.headers['Content-Disposition'] = 'inline' if not as_attachment else 'attachment; filename="%s"' % os.path.basename(path)
-    response.headers['Accept-Ranges'] = 'bytes'
-    response.headers['Access-Control-Allow-Origin'] = '*'
-    response.headers['Cache-Control'] = 'public, max-age=3600'
-    return response
+    return finalize_response(response)
 
 
 @app.route('/player/<token>')
@@ -579,6 +611,7 @@ def player_page(token):
     description = entry_meta.get('description') if entry_meta else ''
     subject = entry_meta.get('subject') if entry_meta else 'General'
     video = {
+        'token': token,
         'stream_url': stream_url,
         'thumbnail_url': (entry_meta.get('thumbnail_url') if entry_meta else None) or f"/thumbnail/{token}",
         'media_type': entry_meta.get('media_type', 'video') if entry_meta else 'video',
@@ -589,6 +622,7 @@ def player_page(token):
         'folder': entry_meta.get('folder', 'General') if entry_meta else 'General',
         'views': entry_meta.get('views', 0) if entry_meta else 0,
         'date': entry_meta.get('date', '') if entry_meta else '',
+        'subtitles': entry_meta.get('subtitles', '') if entry_meta else '',
         'player_url': f"{request.url_root.rstrip('/')}/player/{token}",
         'quality_sources': (entry_meta.get('quality_sources') or {}) if entry_meta else {},
     }

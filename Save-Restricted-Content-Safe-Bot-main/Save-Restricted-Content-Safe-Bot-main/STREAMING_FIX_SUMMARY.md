@@ -1,5 +1,13 @@
 # Video Stream Link Generation - Issue Fix Summary
 
+## Current playback behavior
+
+- Locally cached videos use the site's byte-range stream endpoint, which supports browser seeking and direct HTTP playback in compatible external players.
+- Video files sent as Telegram documents keep their real file extension so the stream endpoint returns a useful video MIME type.
+- Large videos copied to the public Telegram channel use Telegram's embeddable player in the browser. These Telegram post URLs are not direct VLC/MX Player media URLs.
+- Telegram-fallback catalog entries remain pending admin approval; after approval, the study watch page embeds the Telegram player instead of trying to play the Telegram web page as an HTML5 video source.
+- The study watch page and standalone player include seek, 0.25x–4x speed, volume, loop, subtitles when supplied, fullscreen, and picture-in-picture controls.
+
 ## Problem Statement
 Bot was not returning playable video links when users forwarded videos. This prevented the feature of generating MX Player/VLC compatible stream URLs that could be played online.
 

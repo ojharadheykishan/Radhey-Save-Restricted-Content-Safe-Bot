@@ -19,6 +19,39 @@
         background: #000;
         border-radius: 16px;
     }
+    .video-player-wrapper[data-player-shell]:fullscreen {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 2rem;
+        background: #000;
+    }
+    .player-control-button {
+        display: inline-flex;
+        min-width: 40px;
+        min-height: 40px;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        border: 1px solid rgba(255,255,255,.1);
+        border-radius: 12px;
+        color: #e2e8f0;
+        background: rgba(255,255,255,.06);
+        transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+    }
+    .player-control-button:hover,
+    .player-control-button[aria-pressed="true"] {
+        color: #67e8f9;
+        background: rgba(34,211,238,.15);
+    }
+    .player-control-button:hover { transform: translateY(-1px); }
+    .telegram-video-embed {
+        display: block;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        border: 0;
+        background: #000;
+    }
     .progress-bar {
         height: 4px;
         background: rgba(255,255,255,0.1);
@@ -65,25 +98,30 @@
 <div class="max-w-6xl mx-auto">
     <!-- Video Player -->
     <div class="mb-8">
-        <div class="video-player-wrapper">
+        <div class="video-player-wrapper" data-player-shell>
             {% if video.media_type == 'pdf' %}
             <iframe src="{{ video.stream_url }}" title="{{ video.title }}" class="w-full h-[70vh] bg-white" loading="lazy"></iframe>
+            {% elif video.telegram_embed_url %}
+            <iframe src="{{ video.telegram_embed_url }}" title="{{ video.title }}" class="telegram-video-embed" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen loading="lazy"></iframe>
             {% else %}
-            <video id="main-player" controls autoplay playsinline poster="{{ video.thumbnail_url }}" class="w-full">
+            <video id="main-player" data-video-player controls autoplay playsinline poster="{{ video.thumbnail_url }}" class="w-full">
                 <source src="{{ video.stream_url }}" />
                 {% if video.subtitles %}<track kind="subtitles" src="/captions/{{ video.token }}.vtt" srclang="en" label="Subtitles" default>{% endif %}
                 Your browser does not support the video tag.
             </video>
+            {% include 'partials/video_controls.html' %}
             {% endif %}
         </div>
 
         <!-- Watch Progress -->
+        {% if video.media_type != 'pdf' and not video.telegram_embed_url %}
         <div class="mt-4 flex items-center gap-4">
             <div class="flex-1 progress-bar" id="watch-progress">
                 <div class="progress-fill" id="watch-progress-fill" style="width: 0%"></div>
             </div>
             <span class="text-slate-400 text-sm" id="watch-progress-text">0%</span>
         </div>
+        {% endif %}
     </div>
 
     <!-- Video Info & Actions -->
@@ -130,9 +168,9 @@
                         <i class="fas fa-external-link-alt"></i>
                         <span>Open Player</span>
                     </a>
-                    <a href="{{ video.stream_url }}?download=1" target="_blank" class="action-btn flex items-center gap-2 px-5 py-2.5 rounded-full glass-card text-slate-300 hover:text-green-400 hover:border-green-400/30">
-                        <i class="fas fa-download"></i>
-                        <span>Download</span>
+                    <a href="{{ video.stream_url }}{% if not video.telegram_embed_url %}{% if '?' in video.stream_url %}&{% else %}?{% endif %}download=1{% endif %}" target="_blank" rel="noopener" class="action-btn flex items-center gap-2 px-5 py-2.5 rounded-full glass-card text-slate-300 hover:text-green-400 hover:border-green-400/30">
+                        <i class="fas {{ 'fa-arrow-up-right-from-square' if video.telegram_embed_url else 'fa-download' }}"></i>
+                        <span>{{ 'Open Telegram source' if video.telegram_embed_url else 'Download' }}</span>
                     </a>
                     <button onclick="copyLink()" class="action-btn flex items-center gap-2 px-5 py-2.5 rounded-full glass-card text-slate-300 hover:text-purple hover:border-purple/30">
                         <i class="fas fa-copy"></i>
@@ -176,7 +214,7 @@
                     <h4 class="text-slate-400 text-sm mb-3">Quick Actions</h4>
                     <div class="grid grid-cols-2 gap-2">
                         <a href="{{ video.stream_url }}" target="_blank" class="flex items-center justify-center gap-2 py-2 rounded-xl bg-electric/10 text-electric text-sm hover:bg-electric/20 transition-colors">
-                            <i class="fas fa-link text-xs"></i> Stream
+                            <i class="fas fa-link text-xs"></i> {{ 'Telegram post' if video.telegram_embed_url else 'Stream' }}
                         </a>
                         <a href="{{ video.player_url }}" target="_blank" class="flex items-center justify-center gap-2 py-2 rounded-xl bg-purple/10 text-purple text-sm hover:bg-purple/20 transition-colors">
                             <i class="fas fa-play text-xs"></i> Player
@@ -336,4 +374,5 @@
         });
     }
 </script>
+<script src="{{ url_for('static', filename='js/video_player.js') }}"></script>
 {% endblock %}

@@ -37,6 +37,20 @@ def test_build_local_file_name_falls_back_to_id():
     assert filename.endswith(".mp4")
 
 
+def test_build_local_file_name_preserves_video_document_extension():
+    class VideoDocumentMessage:
+        id = 88
+        document = type("Document", (), {
+            "mime_type": "video/mp4",
+            "file_name": "lesson.mp4",
+        })()
+
+    filename = build_local_file_name(VideoDocumentMessage())
+
+    assert filename.startswith("stream_88_")
+    assert filename.endswith(".mp4")
+
+
 def test_has_media_payload_for_forwarded_message():
     class ForwardedMessage:
         forwarded = True
@@ -116,6 +130,7 @@ def test_large_media_handler_skips_local_download(monkeypatch):
 
     assert any("https://t.me/public/55" in text for text in fake_app.edits)
     assert catalog_entries[0][1]["approved"] is False
+    assert catalog_entries[0][0][0] == "https://t.me/public/55?embed=1"
     review_token = catalog_entries[0][1]["token"]
     notification_args, notification_kwargs = admin_notifications[0]
     review_url = urlparse(notification_args[1])

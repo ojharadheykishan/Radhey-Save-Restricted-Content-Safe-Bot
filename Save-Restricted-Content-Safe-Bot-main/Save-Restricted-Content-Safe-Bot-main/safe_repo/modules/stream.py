@@ -5,10 +5,12 @@
 
 import asyncio
 import logging
+import mimetypes
 import os
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import urlencode
 from pyrogram import filters
 from safe_repo import app
@@ -165,12 +167,16 @@ def build_local_file_name(message):
     """Create a safe local filename based on the incoming message."""
     ext = ".mp4"
     if getattr(message, "document", None) is not None:
-        mime = getattr(message.document, "mime_type", "") or ""
-        if "image" in mime:
+        document = message.document
+        mime = str(getattr(document, "mime_type", "") or "").lower()
+        original_ext = Path(str(getattr(document, "file_name", "") or "")).suffix.lower()
+        if mime.startswith("video/"):
+            ext = original_ext or mimetypes.guess_extension(mime, strict=False) or ".mp4"
+        elif mime.startswith("image/"):
             ext = ".jpg"
-        elif "audio" in mime:
+        elif mime.startswith("audio/"):
             ext = ".mp3"
-        elif "pdf" in mime:
+        elif mime == "application/pdf":
             ext = ".pdf"
         else:
             ext = ".bin"
@@ -459,17 +465,19 @@ def build_admin_review_url(token):
 
 def build_stream_reply_text(public_link, study_url=None):
     """Build a Telegram reply that includes both player and website links."""
+    is_telegram_post = str(public_link.get("stream_url") or "").startswith(
+        ("https://t.me/", "https://telegram.me/")
+    )
     lines = [
         "✅ **Stream link ready**",
         "",
         f"📺 Player: {public_link['player_url']}",
-        f"🔗 Direct Stream: {public_link['stream_url']}",
+        f"{'🔗 Telegram video post' if is_telegram_post else '🔗 Direct Stream'}: {public_link['stream_url']}",
     ]
     if study_url:
         lines.extend([
             "",
-            f"🌐 Website link: {study_url}",
-            "Is website link par click karke subject/date wise videos dekh sakte ho.",
+            f"🌐 Study library: {study_url}",
         ])
     else:
         lines.extend([
@@ -517,8 +525,10 @@ async def send_stream_link(sender, message, caption_prefix="🎬 **Stream Link:*
             return
         text = (
             f"{caption_prefix}\n"
-            f"🔗 Direct link: {result['link']}\n\n"
-            "Is link ko VLC / MX Player ya kisi bhi media player mein open kar sakte ho."
+            f"📺 Browser player: {result['embed']}\n"
+            f"🔗 Telegram post: {result['link']}\n\n"
+            "Is Telegram link ko browser ya Telegram app mein kholkar play karein. "
+            "Yeh direct VLC/MX Player media URL nahi hai."
         )
         await app.send_message(chat_id=sender, text=text)
     except Exception as e:

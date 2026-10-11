@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from safe_repo.core.media_links import read_stream_entries
 
 
@@ -26,6 +26,16 @@ def _build_watch_url(token: str) -> str:
     if not token:
         return "/study"
     return f"/study/watch/{token}"
+
+
+def _build_telegram_embed_url(stream_url: str) -> str:
+    """Convert public Telegram post URLs into embeddable player URLs."""
+    parsed = urlparse(stream_url)
+    if parsed.hostname not in {"t.me", "www.t.me", "telegram.me", "www.telegram.me"}:
+        return ""
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query["embed"] = "1"
+    return urlunparse(parsed._replace(query=urlencode(query)))
 
 
 def build_public_study_url(base_url: str, subject: Optional[str] = None, date: Optional[str] = None, q: Optional[str] = None, folder: Optional[str] = None, subfolder: Optional[str] = None) -> str:
@@ -104,6 +114,7 @@ def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, A
                 "completion_count": int(raw_entry.get("completion_count") or 0),
                 "player_url": player_url,
                 "stream_url": stream_url,
+                "telegram_embed_url": _build_telegram_embed_url(stream_url),
                 "thumbnail_url": str(raw_entry.get("thumbnail_url") or (f"/thumbnail/{token}" if token else "")),
                 "media_type": str(raw_entry.get("media_type") or "video").lower(),
                 "approved": bool(raw_entry.get("approved", True)),

@@ -68,8 +68,52 @@ def test_home_route_renders_filtered_catalog_for_subject_date_queries(monkeypatc
     assert 'aria-label="Filter by folder"' in html
     assert 'aria-label="Filter by subfolder"' in html
     assert "Study-By Radhey" in html
-    assert 'data-folder-view-option="grid"' in html
-    assert 'data-folder-view-option="list"' in html
+    assert "Thumbnail view" in html
+    assert 'data-folder-view-option="list"' not in html
+
+
+def test_telegram_source_uses_embedded_player_on_watch_page(tmp_path, monkeypatch):
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(json.dumps([{
+        "token": "telegram-video",
+        "title": "Telegram lesson",
+        "player_url": "https://study.example/study/watch/telegram-video",
+        "stream_url": "https://t.me/public_channel/55",
+        "approved": True,
+    }]), encoding="utf-8")
+    monkeypatch.setenv("STREAM_CATALOG_FILE", str(catalog_path))
+
+    entry = load_catalog_entries()[0]
+    response = flask_app.test_client().get("/study/watch/telegram-video")
+    html = response.get_data(as_text=True)
+
+    assert entry["telegram_embed_url"] == "https://t.me/public_channel/55?embed=1"
+    assert response.status_code == 200
+    assert 'src="https://t.me/public_channel/55?embed=1"' in html
+    assert "data-player-speed" not in html
+
+
+def test_watch_page_renders_extended_video_controls(tmp_path, monkeypatch):
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(json.dumps([{
+        "token": "local-video",
+        "title": "Local lesson",
+        "player_url": "https://study.example/player/local-video",
+        "stream_url": "https://study.example/stream/local-video",
+        "subtitles": "WEBVTT\n",
+        "approved": True,
+    }]), encoding="utf-8")
+    monkeypatch.setenv("STREAM_CATALOG_FILE", str(catalog_path))
+
+    response = flask_app.test_client().get("/study/watch/local-video")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'data-player-speed' in html
+    assert 'value="4">4x' in html
+    assert 'data-player-action="loop"' in html
+    assert 'data-player-action="captions"' in html
+    assert 'data-player-action="pip"' in html
 
 
 def test_public_library_groups_media_by_source_date(tmp_path, monkeypatch):
@@ -620,7 +664,14 @@ def test_build_video_index_filters_by_folder(tmp_path):
 def test_admin_bulk_action_updates_and_deletes_selected_entries(tmp_path, monkeypatch):
     catalog_path = tmp_path / "catalog.json"
     catalog_path.write_text(json.dumps([
-        {"token": "one", "title": "Alpha", "featured": False},
+        {
+            "token": "one",
+            "title": "Alpha",
+            "featured": False,
+            "approved": False,
+            "player_url": "https://example.com/player/one",
+            "stream_url": "https://example.com/stream/one",
+        },
         {"token": "two", "title": "Beta", "featured": False},
     ]), encoding="utf-8")
     monkeypatch.setenv("STREAM_CATALOG_FILE", str(catalog_path))
@@ -635,6 +686,9 @@ def test_admin_bulk_action_updates_and_deletes_selected_entries(tmp_path, monkey
     assert "media-search" in dashboard_html
     assert "media-preview-modal" in dashboard_html
     assert "export-media" in dashboard_html
+    first_row_start = dashboard_html.index('class="border-b border-white/5 admin-video-row"')
+    first_row = dashboard_html[first_row_start:dashboard_html.index("</tr>", first_row_start)]
+    assert first_row.index("Pending approval") < first_row.index("Open player")
 
     response = client.post("/api/admin/videos/bulk", json={"action": "featured", "tokens": ["one"]})
     assert response.status_code == 200

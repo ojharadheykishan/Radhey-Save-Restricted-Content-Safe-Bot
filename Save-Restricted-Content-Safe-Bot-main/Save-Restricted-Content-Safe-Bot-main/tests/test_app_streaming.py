@@ -30,6 +30,19 @@ def test_build_stream_response_uses_attachment_for_download(tmp_path):
     assert "attachment" in response.headers.get("Content-Disposition", "")
 
 
+def test_build_stream_response_supports_seek_range_requests(tmp_path):
+    media_path = tmp_path / "sample.mp4"
+    media_path.write_bytes(b"0123456789")
+
+    with app.test_request_context("/", headers={"Range": "bytes=2-5"}):
+        response = build_stream_response(str(media_path), as_attachment=False)
+
+    assert response.status_code == 206
+    assert response.data == b"2345"
+    assert response.headers["Content-Range"] == "bytes 2-5/10"
+    assert response.headers["Accept-Ranges"] == "bytes"
+
+
 def test_thumbnail_route_serves_cached_poster(tmp_path, monkeypatch):
     source = tmp_path / "sample.mp4"
     source.write_bytes(b"test media")

@@ -47,12 +47,13 @@
 {% endblock %}
 
 {% block content %}
-<div class="fullscreen-player fixed inset-0 z-50 flex items-center justify-center">
+<div class="fullscreen-player fixed inset-0 z-50 flex items-center justify-center" data-player-shell>
     {% if video.media_type == 'pdf' %}
     <iframe src="{{ video.stream_url }}" title="{{ video.title }}" class="w-full h-full bg-white"></iframe>
     {% else %}
-    <video id="fullscreen-player" controls autoplay playsinline poster="{{ video.thumbnail_url }}" class="w-full h-full max-h-screen">
+    <video id="fullscreen-player" data-video-player controls autoplay playsinline poster="{{ video.thumbnail_url }}" class="w-full h-full max-h-screen">
         <source src="{{ video.stream_url }}" />
+        {% if video.subtitles %}<track kind="subtitles" src="/captions/{{ video.token }}.vtt" srclang="en" label="Subtitles" default>{% endif %}
         Your browser does not support the video tag.
     </video>
     {% endif %}
@@ -70,7 +71,7 @@
                 <button onclick="togglePip()" class="pip-btn w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white" title="Picture in Picture">
                     <i class="fas fa-external-link-square-alt"></i>
                 </button>
-                <button onclick="window.close()" class="pip-btn w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white" title="Close">
+                <button onclick="history.length > 1 ? history.back() : window.location.assign('/study')" class="pip-btn w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white" title="Back to library">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
@@ -87,6 +88,14 @@
             <button onclick="skipBy(10)" class="control-btn w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white" title="Forward 10 seconds" aria-label="Forward 10 seconds">
                 <i class="fas fa-redo"></i>
             </button>
+            <button onclick="toggleLoop()" id="loop-toggle" class="control-btn w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white" title="Loop off" aria-label="Enable loop" aria-pressed="false">
+                <i class="fas fa-repeat"></i>
+            </button>
+            {% if video.subtitles %}
+            <button onclick="toggleCaptions()" id="captions-toggle" class="control-btn w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white" title="Toggle subtitles" aria-label="Toggle subtitles" aria-pressed="true">
+                <i class="fas fa-closed-captioning"></i>
+            </button>
+            {% endif %}
             <!-- Speed Selector -->
             <div class="relative">
                 <button onclick="toggleSpeedMenu()" class="control-btn px-4 py-2 rounded-lg bg-white/10 text-white text-sm font-medium flex items-center gap-2">
@@ -135,10 +144,14 @@
             <a href="{{ video.stream_url }}" target="_blank" class="control-btn w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white" title="Open Stream">
                 <i class="fas fa-external-link-alt text-sm"></i>
             </a>
+            <a href="{{ video.stream_url }}?download=1" target="_blank" rel="noopener" class="control-btn w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white" title="Download">
+                <i class="fas fa-download text-sm"></i>
+            </a>
             <button onclick="copyLink()" class="control-btn w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white" title="Copy Link">
                 <i class="fas fa-copy text-sm"></i>
             </button>
         </div>
+        <p id="player-status" class="mt-3 min-h-5 text-sm text-rose-200 pointer-events-auto" role="status" aria-live="polite"></p>
     </div>
     {% endif %}
 </div>
@@ -148,10 +161,15 @@
 {% block extra_scripts %}
 <script>
     const player = document.getElementById('fullscreen-player');
+    const playerStatus = document.getElementById('player-status');
+
+    function showPlayerStatus(text) {
+        if (playerStatus) playerStatus.textContent = text;
+    }
 
     function togglePlayback() {
         if (!player) return;
-        if (player.paused) player.play().catch(() => {}); else player.pause();
+        if (player.paused) player.play().catch(() => showPlayerStatus('Playback could not start.')); else player.pause();
     }
 
     function skipBy(seconds) {
@@ -162,7 +180,12 @@
 
     function toggleMute() {
         if (!player) return;
-        player.muted = !player.muted;
+        if (player.muted || player.volume === 0) {
+            player.muted = false;
+            if (player.volume === 0) player.volume = 0.5;
+        } else {
+            player.muted = true;
+        }
         updateVolumeControls();
     }
 
@@ -178,8 +201,35 @@
 
     function toggleFullscreen() {
         if (!player) return;
-        if (document.fullscreenElement) document.exitFullscreen();
-        else player.requestFullscreen().catch(() => {});
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => showPlayerStatus('Fullscreen could not be closed.'));
+        } else {
+            const shell = document.querySelector('[data-player-shell]');
+            if (shell && shell.requestFullscreen) {
+                shell.requestFullscreen().catch(() => showPlayerStatus('Fullscreen is unavailable in this browser.'));
+            } else {
+                showPlayerStatus('Fullscreen is unavailable in this browser.');
+            }
+        }
+    }
+
+    function toggleLoop() {
+        if (!player) return;
+        player.loop = !player.loop;
+        const button = document.getElementById('loop-toggle');
+        button.setAttribute('aria-pressed', String(player.loop));
+        button.setAttribute('aria-label', player.loop ? 'Disable loop' : 'Enable loop');
+        button.title = player.loop ? 'Loop on' : 'Loop off';
+    }
+
+    function toggleCaptions() {
+        if (!player || !player.textTracks.length) {
+            showPlayerStatus('No subtitles are available for this video.');
+            return;
+        }
+        const enabled = Array.from(player.textTracks).some(track => track.mode === 'showing');
+        Array.from(player.textTracks).forEach(track => { track.mode = enabled ? 'disabled' : 'showing'; });
+        document.getElementById('captions-toggle')?.setAttribute('aria-pressed', String(!enabled));
     }
 
     if (player) {
@@ -193,13 +243,19 @@
     }
 
     function toggleSpeedMenu() {
-        document.getElementById('speed-menu').classList.toggle('hidden');
-        document.getElementById('quality-menu').classList.add('hidden');
+        const speedMenu = document.getElementById('speed-menu');
+        const qualityMenu = document.getElementById('quality-menu');
+        if (!speedMenu || !qualityMenu) return;
+        speedMenu.classList.toggle('hidden');
+        qualityMenu.classList.add('hidden');
     }
 
     function toggleQualityMenu() {
-        document.getElementById('quality-menu').classList.toggle('hidden');
-        document.getElementById('speed-menu').classList.add('hidden');
+        const speedMenu = document.getElementById('speed-menu');
+        const qualityMenu = document.getElementById('quality-menu');
+        if (!speedMenu || !qualityMenu) return;
+        qualityMenu.classList.toggle('hidden');
+        speedMenu.classList.add('hidden');
     }
 
     function setSpeed(speed) {
@@ -225,7 +281,7 @@
         player.load();
         player.addEventListener('loadedmetadata', () => {
             player.currentTime = Math.min(currentTime, player.duration || currentTime);
-            if (wasPlaying) player.play().catch(() => {});
+            if (wasPlaying) player.play().catch(() => showPlayerStatus('The selected quality could not be played.'));
         }, { once: true });
         document.querySelectorAll('.quality-option').forEach(option => option.classList.remove('active'));
         button.classList.add('active');
@@ -238,29 +294,36 @@
 
     function togglePip() {
         if (document.pictureInPictureElement) {
-            document.exitPictureInPicture();
+            document.exitPictureInPicture().catch(() => showPlayerStatus('Picture in picture could not be closed.'));
         } else if (player && player.requestPictureInPicture) {
-            player.requestPictureInPicture().catch(() => {});
+            player.requestPictureInPicture().catch(() => showPlayerStatus('Picture in picture is unavailable.'));
+        } else {
+            showPlayerStatus('Picture in picture is unavailable in this browser.');
         }
     }
 
     function copyLink() {
-        navigator.clipboard.writeText(window.location.href).then(() => {
-            showToast('Link copied to clipboard!', 'success');
-        });
+        if (!navigator.clipboard?.writeText) {
+            showPlayerStatus('Clipboard access is unavailable in this browser.');
+            return;
+        }
+        navigator.clipboard.writeText(window.location.href)
+            .then(() => showPlayerStatus('Player link copied.'))
+            .catch(() => showPlayerStatus('Could not copy the player link.'));
     }
 
     // Close menus when clicking outside
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.relative')) {
-            document.getElementById('speed-menu').classList.add('hidden');
-            document.getElementById('quality-menu').classList.add('hidden');
+            document.getElementById('speed-menu')?.classList.add('hidden');
+            document.getElementById('quality-menu')?.classList.add('hidden');
         }
     });
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-        if (e.target.matches('input, textarea, select')) return;
+        if (!player) return;
+        if (e.target.closest('input, textarea, select, button, a, [contenteditable="true"]')) return;
         if (e.key === ' ' && player) {
             e.preventDefault();
             if (player.paused) player.play(); else player.pause();
@@ -273,6 +336,9 @@
         if (e.key === 'ArrowUp' && player) player.volume = Math.min(1, player.volume + 0.1);
         if (e.key === 'ArrowDown' && player) player.volume = Math.max(0, player.volume - 0.1);
         if (e.key.toLowerCase() === 'm') toggleMute();
+        if (e.key.toLowerCase() === 'l') toggleLoop();
+        if (e.key.toLowerCase() === 'c') toggleCaptions();
     });
+    if (player) player.addEventListener('error', () => showPlayerStatus('This video format could not be played in the browser. Try opening or downloading the source.'));
 </script>
 {% endblock %}

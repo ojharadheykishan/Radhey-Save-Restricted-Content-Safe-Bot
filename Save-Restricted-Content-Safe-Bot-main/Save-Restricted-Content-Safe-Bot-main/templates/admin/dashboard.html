@@ -310,12 +310,6 @@
                                     {{ entry.folder or 'General' }}{% if entry.subfolder %}<span class="text-slate-500"> / {{ entry.subfolder }}</span>{% endif %}
                                 </td>
                                 <td class="p-4">
-                                    <div class="flex flex-wrap gap-2">
-                                        <a href="{{ entry.player_url }}" target="_blank" rel="noopener" class="rounded-lg bg-teal-400/10 px-3 py-2 text-xs font-medium text-teal-300 hover:bg-teal-400/20">Open player</a>
-                                        <button type="button" class="rounded-lg bg-rose-400/10 px-3 py-2 text-xs font-medium text-rose-300 hover:bg-rose-400/20" data-url="{{ entry.stream_url }}" onclick="copyAdminLink(this.dataset.url)">Copy stream</button>
-                                    </div>
-                                </td>
-                                <td class="p-4">
                                     <div class="flex flex-wrap gap-1">
                                         {% if entry.featured %}
                                         <span class="px-2 py-1 rounded-full bg-yellow-500/10 text-yellow-400 text-xs">Featured</span>
@@ -326,6 +320,12 @@
                                         {% if not entry.approved %}
                                         <span class="px-2 py-1 rounded-full bg-orange-500/10 text-orange-300 text-xs">Pending approval</span>
                                         {% endif %}
+                                    </div>
+                                </td>
+                                <td class="p-4">
+                                    <div class="flex flex-wrap gap-2">
+                                        <a href="{{ entry.player_url }}" target="_blank" rel="noopener" class="rounded-lg bg-teal-400/10 px-3 py-2 text-xs font-medium text-teal-300 hover:bg-teal-400/20">Open player</a>
+                                        <button type="button" class="rounded-lg bg-rose-400/10 px-3 py-2 text-xs font-medium text-rose-300 hover:bg-rose-400/20" data-url="{{ entry.stream_url }}" onclick="copyAdminLink(this.dataset.url)">Copy stream</button>
                                     </div>
                                 </td>
                                 <td class="p-4">
