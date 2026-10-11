@@ -1,36 +1,23 @@
 import os
-import subprocess
-import sys
-from pathlib import Path
+import importlib
 
 import pytest
 
 import config
 
 
-def test_telegram_credentials_load_from_environment():
-    project_dir = Path(__file__).resolve().parents[1]
-    environment = os.environ.copy()
-    environment.update(
-        API_ID="123456",
-        API_HASH="test-api-hash",
-        BOT_TOKEN="123456:test-bot-token",
-    )
-    check = (
-        "import config; "
-        "assert config.API_ID == 123456; "
-        "assert config.API_HASH == 'test-api-hash'; "
-        "assert config.BOT_TOKEN == '123456:test-bot-token'"
-    )
+def test_telegram_credentials_load_from_environment(monkeypatch):
+    original = (config.API_ID, config.API_HASH, config.BOT_TOKEN)
+    monkeypatch.setenv("API_HASH", "test-api-hash")
+    monkeypatch.setenv("BOT_TOKEN", "123456:test-bot-token")
 
-    subprocess.run(
-        [sys.executable, "-c", check],
-        cwd=project_dir,
-        env=environment,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    importlib.reload(config)
+
+    assert config.API_ID == original[0]
+    assert config.API_HASH == "test-api-hash"
+    assert config.BOT_TOKEN == "123456:test-bot-token"
+
+    config.API_ID, config.API_HASH, config.BOT_TOKEN = original
 
 
 def test_required_config_reports_missing_telegram_credentials(monkeypatch):

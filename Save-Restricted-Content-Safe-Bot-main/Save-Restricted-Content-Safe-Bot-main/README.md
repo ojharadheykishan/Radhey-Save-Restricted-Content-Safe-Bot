@@ -49,7 +49,7 @@ Note : You must make bot admin in both channels
 
 Easy Method:
 - Fork repo
-- Set `API_ID`, `API_HASH`, and `BOT_TOKEN` as environment variables; do not put credentials in `config.py`.
+- Keep the non-secret `API_ID` and channel settings in `config.py`. Set the secret `API_HASH` and `BOT_TOKEN` as environment variables; do not put either credential in source code.
 - Now run following commands one by one...
 ```
 sudo apt update
@@ -57,7 +57,6 @@ sudo apt install ffmpeg git python3-pip
 git clone your_repo_link
 cd you_repo_name
 pip3 install -r requirements.txt
-export API_ID="your_api_id"
 export API_HASH="your_api_hash"
 export BOT_TOKEN="your_bot_token"
 python3 -m safe_repo

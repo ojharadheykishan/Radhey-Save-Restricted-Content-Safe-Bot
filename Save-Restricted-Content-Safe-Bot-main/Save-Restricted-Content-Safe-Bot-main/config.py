@@ -3,7 +3,7 @@
 import os
 
 API_HASH = os.environ.get("API_HASH", "").strip()
-API_ID = int(os.environ.get("API_ID") or "0")
+API_ID = 26704085
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
 CHANNEL_ID = -1003818713803
 LOG_GROUP = -1005121908460
