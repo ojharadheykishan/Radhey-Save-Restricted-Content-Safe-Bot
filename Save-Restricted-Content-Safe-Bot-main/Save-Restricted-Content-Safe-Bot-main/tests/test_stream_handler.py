@@ -3,6 +3,7 @@ from urllib.parse import parse_qs, urlparse
 
 from safe_repo.modules.stream import (
     build_local_file_name,
+    build_public_stream_link,
     get_archive_chat_ids,
     get_message_media_size,
     format_progress_bar,
@@ -137,6 +138,80 @@ def test_large_media_handler_skips_local_download(monkeypatch):
     assert review_url.path == "/admin/login"
     assert parse_qs(review_url.query)["next"] == [f"/admin/edit/{review_token}"]
     assert notification_kwargs["admin_only"] is True
+
+
+def test_video_without_persistent_storage_uses_telegram_player_link(tmp_path, monkeypatch):
+    source = tmp_path / "lesson.mp4"
+    source.write_bytes(b"video")
+    cached_media = tmp_path / "cache" / "cached-lesson.mp4"
+    cached_media.parent.mkdir()
+    cached_media.write_bytes(b"video")
+    cached_thumbnail = cached_media.parent / "cached-token.thumb.jpg"
+    cached_thumbnail.write_bytes(b"thumbnail")
+
+    class VideoDocumentMessage:
+        document = type(
+            "Document",
+            (),
+            {"mime_type": "application/octet-stream", "file_name": "lesson.mp4"},
+        )()
+
+    async def channel_post(_message):
+        return {
+            "embed": "https://t.me/public_channel/55?embed=1",
+            "link": "https://t.me/public_channel/55",
+        }
+
+    monkeypatch.setattr(stream_module, "find_duplicate_media", lambda _path: None)
+    monkeypatch.setattr(
+        stream_module,
+        "save_stream_file",
+        lambda *_args, **_kwargs: {
+            "token": "cached-token",
+            "file_path": str(cached_media),
+            "player_url": "https://study.example/player/cached-token",
+            "stream_url": "https://study.example/stream/cached-token",
+        },
+    )
+    monkeypatch.setattr(stream_module, "post_to_stream_channel", channel_post)
+
+    public_link = asyncio.run(build_public_stream_link(VideoDocumentMessage(), str(source)))
+
+    assert public_link["source"] == "channel"
+    assert public_link["player_url"] == "https://t.me/public_channel/55?embed=1"
+    assert public_link["stream_url"] == "https://t.me/public_channel/55"
+    assert public_link["token"]
+    assert not cached_media.exists()
+    assert not cached_thumbnail.exists()
+
+
+def test_video_with_persistent_storage_uses_web_player_link(tmp_path, monkeypatch):
+    source = tmp_path / "lesson.mp4"
+    source.write_bytes(b"video")
+
+    class VideoMessage:
+        video = object()
+
+    saved = {
+        "token": "persistent-token",
+        "file_path": str(tmp_path / "persistent.mp4"),
+        "player_url": "https://study.example/player/persistent-token",
+        "stream_url": "https://study.example/stream/persistent-token",
+        "storage_key": "media/persistent.mp4",
+    }
+    monkeypatch.setattr(stream_module, "find_duplicate_media", lambda _path: None)
+    monkeypatch.setattr(stream_module, "save_stream_file", lambda *_args, **_kwargs: saved)
+
+    async def unexpected_channel_post(_message):
+        raise AssertionError("persistent media should not need a Telegram fallback")
+
+    monkeypatch.setattr(stream_module, "post_to_stream_channel", unexpected_channel_post)
+
+    public_link = asyncio.run(build_public_stream_link(VideoMessage(), str(source)))
+
+    assert public_link["source"] == "cache"
+    assert public_link["player_url"] == saved["player_url"]
+    assert public_link["storage_key"] == saved["storage_key"]
 
 
 def test_get_archive_chat_ids_includes_configured_channel(monkeypatch):

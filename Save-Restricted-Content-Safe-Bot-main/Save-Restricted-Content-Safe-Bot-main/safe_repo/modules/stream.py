@@ -366,10 +366,10 @@ async def archive_media_for_premium(message):
 
 
 async def build_public_stream_link(message, media_file=None, thumbnail_path=None):
-    """Build a public stream link from local cache when possible, else fall back to a Telegram channel post for large or unsupported files."""
+    """Build a durable stream link, preferring Telegram when the web app cannot share the local cache."""
     if media_file and os.path.exists(media_file):
         duplicate = find_duplicate_media(media_file)
-        if duplicate and duplicate.get("token"):
+        if duplicate and duplicate.get("token") and duplicate.get("storage_key"):
             logger.info("Media already exists in the website catalog: %s", duplicate.get("token"))
             return {
                 "source": "duplicate",
@@ -382,7 +382,55 @@ async def build_public_stream_link(message, media_file=None, thumbnail_path=None
             logger.info(f"build_public_stream_link: attempting to cache file {media_file}")
             saved = save_stream_file(media_file, thumbnail_path=thumbnail_path)
             if saved:
-                logger.info(f"build_public_stream_link: successfully cached file, returning URLs")
+                if saved.get("storage_key"):
+                    logger.info("build_public_stream_link: media has a persistent object-storage key")
+                    return {
+                        "source": "cache",
+                        "player_url": saved["player_url"],
+                        "stream_url": saved["stream_url"],
+                        "token": saved["token"],
+                        "thumbnail_url": saved.get("thumbnail_url"),
+                        "content_hash": saved.get("content_hash"),
+                        "pdf_text": saved.get("pdf_text"),
+                        "storage_key": saved.get("storage_key"),
+                        "thumbnail_storage_key": saved.get("thumbnail_storage_key"),
+                    }
+
+                document = getattr(message, "document", None)
+                mime_type = str(getattr(document, "mime_type", "") or "").lower()
+                original_mime_type = mimetypes.guess_type(str(getattr(document, "file_name", "") or ""))[0] or ""
+                local_mime_type = mimetypes.guess_type(media_file)[0] or ""
+                is_video = (
+                    getattr(message, "video", None) is not None
+                    or mime_type.startswith("video/")
+                    or original_mime_type.startswith("video/")
+                    or local_mime_type.startswith("video/")
+                )
+                if is_video:
+                    logger.warning("Local video cache is not shared with the web app; using a Telegram player link")
+                    result = await post_to_stream_channel(message)
+                    if result:
+                        cached_paths = [saved.get("file_path")]
+                        if saved.get("token"):
+                            cached_paths.append(os.path.join(os.path.dirname(saved.get("file_path", "")), f"{saved['token']}.thumb.jpg"))
+                        for cached_path in cached_paths:
+                            if cached_path:
+                                try:
+                                    os.remove(cached_path)
+                                except FileNotFoundError:
+                                    pass
+                                except OSError:
+                                    logger.warning("Could not remove temporary stream cache file %s", cached_path)
+                        return {
+                            "source": "channel",
+                            "player_url": result["embed"],
+                            "stream_url": result["link"],
+                            "token": uuid.uuid4().hex,
+                        }
+                    logger.error("No durable storage or Telegram channel link is available for this video")
+                    return None
+
+                logger.info("build_public_stream_link: using local cache for non-video media")
                 return {
                     "source": "cache",
                     "player_url": saved["player_url"],
@@ -407,7 +455,7 @@ async def build_public_stream_link(message, media_file=None, thumbnail_path=None
             "source": "channel",
             "player_url": result["embed"],
             "stream_url": result["link"],
-            "token": None,
+            "token": uuid.uuid4().hex,
         }
     else:
         logger.error(f"build_public_stream_link: both caching and channel posting failed")
