@@ -1,5 +1,10 @@
 #!/bin/bash
 
+if [ -z "${BOT_TOKEN:-}" ]; then
+    echo "BOT_TOKEN environment variable is required; refusing to restart/check the bot."
+    exit 1
+fi
+
 # Monitor bot and restart if necessary
 BOT_PID=$(ps aux | grep python3 | grep -v grep | awk '{print $2}')
 
@@ -12,10 +17,6 @@ else
 fi
 
 # Check if bot responds to API calls with timeout
-# NOTE: Use the same BOT_TOKEN as config.py. The old hardcoded token here
-# was different from config.py and caused a 409 Conflict (dual-login) that
-# made the bot stop responding.
-BOT_TOKEN="${BOT_TOKEN:-8564747078:AAF4rw9Fw7sBI-NCdCZgOvaUL2mIGrleIss}"
 RESPONSE=$(curl -s --connect-timeout 10 "https://api.telegram.org/bot${BOT_TOKEN}/getMe")
 
 if echo "$RESPONSE" | grep -q "ok\":true"; then

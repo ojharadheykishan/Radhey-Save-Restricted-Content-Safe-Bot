@@ -49,8 +49,7 @@ Note : You must make bot admin in both channels
 
 Easy Method:
 - Fork repo
-- Go to ```config.py``` as below
-- Fill variables inside the double quoted commas `""`  
+- Set `API_ID`, `API_HASH`, and `BOT_TOKEN` as environment variables; do not put credentials in `config.py`.
 - Now run following commands one by one...
 ```
 sudo apt update
@@ -58,8 +57,13 @@ sudo apt install ffmpeg git python3-pip
 git clone your_repo_link
 cd you_repo_name
 pip3 install -r requirements.txt
+export API_ID="your_api_id"
+export API_HASH="your_api_hash"
+export BOT_TOKEN="your_bot_token"
 python3 -m safe_repo
 ```
+
+For Railway or another hosting platform, add `API_ID`, `API_HASH`, and `BOT_TOKEN` in the service's environment/secrets settings.
 
 - if you want bot to be running in background then enter `screen -S safe_repo_bot` before `python3 -m safe_repo` 
 - after `python3 -m safe_repo`, click `ctrl+A`, `ctrl+D`

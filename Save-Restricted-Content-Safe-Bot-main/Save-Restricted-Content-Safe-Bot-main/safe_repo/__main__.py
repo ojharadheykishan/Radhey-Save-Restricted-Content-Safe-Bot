@@ -44,7 +44,7 @@ import sys
 
 import asyncio
 from safe_repo.core.media_links import run_full_cleanup
-from config import CLONE_LOG_CHANNEL
+from config import CLONE_LOG_CHANNEL, validate_required_config
 
 async def schedule_cleanup_task():
     """Periodically trim the media cache. Retention defaults to "keep forever"."""
@@ -64,6 +64,7 @@ async def schedule_cleanup_task():
         await asyncio.sleep(interval_hours * 3600)
 
 async def safe_repo_boot():
+    validate_required_config()
     try:
         # Log environment variables for debugging streaming issues
         import os
