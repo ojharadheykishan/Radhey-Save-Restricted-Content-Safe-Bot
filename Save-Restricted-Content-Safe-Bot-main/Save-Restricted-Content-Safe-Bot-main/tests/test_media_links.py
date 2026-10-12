@@ -105,6 +105,23 @@ def test_save_stream_file_uses_railway_public_domain(tmp_path, monkeypatch):
     assert result["stream_url"].startswith("https://my-bot.up.railway.app/stream/")
 
 
+def test_save_stream_file_does_not_create_localhost_links_on_railway(tmp_path, monkeypatch):
+    source = tmp_path / "sample.mp4"
+    source.write_bytes(b"test-media")
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("APP_URL", raising=False)
+    monkeypatch.delenv("RAILWAY_PUBLIC_DOMAIN", raising=False)
+    monkeypatch.delenv("RAILWAY_STATIC_URL", raising=False)
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.delenv("RENDER_EXTERNAL_URL", raising=False)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+
+    result = save_stream_file(str(source), cache_dir=str(tmp_path / "cache"))
+
+    assert result is None
+    assert list((tmp_path / "cache").glob("*.mp4")) == []
+
+
 def test_append_stream_link_stores_catalog_entry(tmp_path):
     archive_path = tmp_path / "links.txt"
     entry_path = tmp_path / "catalog.json"

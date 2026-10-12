@@ -38,6 +38,17 @@ def _build_telegram_embed_url(stream_url: str) -> str:
     return urlunparse(parsed._replace(query=urlencode(query)))
 
 
+def _rebase_local_media_url(url: str, token: str, endpoint: str) -> str:
+    parsed = urlparse(url)
+    if (
+        token
+        and parsed.hostname in {"localhost", "127.0.0.1", "0.0.0.0"}
+        and parsed.path.rstrip("/") == f"/{endpoint}/{token}"
+    ):
+        return urlunparse(parsed._replace(scheme="", netloc=""))
+    return url
+
+
 def build_public_study_url(base_url: str, subject: Optional[str] = None, date: Optional[str] = None, q: Optional[str] = None, folder: Optional[str] = None, subfolder: Optional[str] = None) -> str:
     """Build a public study URL that defaults to the home page and only uses /study when filters are present."""
     base = (base_url or "/").rstrip("/")
@@ -96,6 +107,10 @@ def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, A
         subfolder_name = str(raw_entry.get("subfolder") or _extract_subfolder_name(description)).strip()
         stream_url = str(raw_entry.get("stream_url") or "").strip()
         player_url = str(raw_entry.get("player_url") or "").strip()
+        thumbnail_url = str(raw_entry.get("thumbnail_url") or (f"/thumbnail/{token}" if token else ""))
+        stream_url = _rebase_local_media_url(stream_url, token, "stream")
+        player_url = _rebase_local_media_url(player_url, token, "player")
+        thumbnail_url = _rebase_local_media_url(thumbnail_url, token, "thumbnail")
 
         entries.append(
             {
@@ -115,7 +130,7 @@ def load_catalog_entries(catalog_path: Optional[str] = None) -> List[Dict[str, A
                 "player_url": player_url,
                 "stream_url": stream_url,
                 "telegram_embed_url": _build_telegram_embed_url(stream_url),
-                "thumbnail_url": str(raw_entry.get("thumbnail_url") or (f"/thumbnail/{token}" if token else "")),
+                "thumbnail_url": thumbnail_url,
                 "media_type": str(raw_entry.get("media_type") or "video").lower(),
                 "approved": bool(raw_entry.get("approved", True)),
                 "transcript": str(raw_entry.get("transcript") or ""),

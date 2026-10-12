@@ -39,6 +39,35 @@ def test_load_catalog_entries_normalizes_video_metadata(tmp_path):
     assert entries[0]["media_type"] == "pdf"
 
 
+def test_load_catalog_entries_rebases_saved_localhost_media_urls(tmp_path):
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(json.dumps([{
+        "token": "old-link",
+        "player_url": "http://127.0.0.1:5000/player/old-link",
+        "stream_url": "http://localhost:5000/stream/old-link",
+        "thumbnail_url": "http://0.0.0.0:5000/thumbnail/old-link",
+    }]), encoding="utf-8")
+
+    entry = load_catalog_entries(str(catalog_path))[0]
+
+    assert entry["player_url"] == "/player/old-link"
+    assert entry["stream_url"] == "/stream/old-link"
+    assert entry["thumbnail_url"] == "/thumbnail/old-link"
+
+
+def test_load_catalog_entries_keeps_telegram_stream_urls(tmp_path):
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(json.dumps([{
+        "token": "telegram-link",
+        "stream_url": "https://t.me/public_channel/55",
+    }]), encoding="utf-8")
+
+    entry = load_catalog_entries(str(catalog_path))[0]
+
+    assert entry["stream_url"] == "https://t.me/public_channel/55"
+    assert entry["telegram_embed_url"] == "https://t.me/public_channel/55?embed=1"
+
+
 def test_home_route_renders_filtered_catalog_for_subject_date_queries(monkeypatch, tmp_path):
     catalog_path = tmp_path / "catalog.json"
     catalog_path.write_text(json.dumps([

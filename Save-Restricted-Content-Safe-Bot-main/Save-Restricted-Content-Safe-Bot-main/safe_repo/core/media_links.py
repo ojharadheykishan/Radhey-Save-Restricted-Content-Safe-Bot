@@ -126,6 +126,12 @@ def _get_base_url(base_url=None):
 
         return env_url.rstrip("/")
 
+    if os.environ.get("RAILWAY_ENVIRONMENT"):
+        raise RuntimeError(
+            "No public base URL configured for Railway; set PUBLIC_BASE_URL "
+            "or generate a Railway public domain"
+        )
+
     # Fallback to localhost only if explicitly in development mode
     return "http://127.0.0.1:5000"
 
@@ -318,6 +324,7 @@ def save_stream_file(source_path, base_url=None, cache_dir=None, max_size_mb=Non
         return None
 
     try:
+        base_url = _get_base_url(base_url)
         cache_path = Path(_get_cache_dir(cache_dir))
         cache_path.mkdir(parents=True, exist_ok=True)
         cache_stats = get_stream_cache_stats(str(cache_path))
@@ -343,7 +350,6 @@ def save_stream_file(source_path, base_url=None, cache_dir=None, max_size_mb=Non
         content_hash = get_file_sha256(source_path)
         pdf_text = extract_pdf_text(source_path)
 
-        base_url = _get_base_url(base_url)
         result = {
             "token": token,
             "file_path": str(target_path),
