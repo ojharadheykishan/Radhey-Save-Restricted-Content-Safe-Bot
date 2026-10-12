@@ -1,0 +1,13 @@
+services:
+  bot:
+    build: .
+    container_name: safe-repo-bot
+    env_file:
+      - .env
+    environment:
+      API_ID: "${API_ID:-26704085}"
+      API_HASH: "${API_HASH:?Set API_HASH in .env}"
+      BOT_TOKEN: "${BOT_TOKEN:?Set BOT_TOKEN in .env}"
+    network_mode: host
+    restart: unless-stopped
+    init: true

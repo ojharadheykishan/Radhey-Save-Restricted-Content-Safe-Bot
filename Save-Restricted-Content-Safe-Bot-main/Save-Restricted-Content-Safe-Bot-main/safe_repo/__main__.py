@@ -165,4 +165,5 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Critical error: {e}")
         logger.info("Bot will not restart automatically to prevent duplicate handlers")
+        sys.exit(1)
     logger.info("Bot process completed")

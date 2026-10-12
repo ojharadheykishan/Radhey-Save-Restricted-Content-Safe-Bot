@@ -7,10 +7,13 @@ python -m safe_repo &
 bot_pid=$!
 
 cleanup() {
-	kill "$bot_pid" 2>/dev/null || true
+	kill "$bot_pid" "$web_pid" 2>/dev/null || true
+	wait "$bot_pid" "$web_pid" 2>/dev/null || true
 }
-trap cleanup EXIT TERM INT
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 gunicorn --bind "0.0.0.0:${PORT:-8080}" --workers 1 --threads 4 --timeout 0 railway_server:app &
 web_pid=$!
-wait "$web_pid"
+wait -n "$bot_pid" "$web_pid"
