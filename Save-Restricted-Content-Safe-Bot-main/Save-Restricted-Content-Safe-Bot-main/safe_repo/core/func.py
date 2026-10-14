@@ -20,6 +20,12 @@ from pyrogram.errors import FloodWait, InviteHashInvalid, InviteHashExpired, Use
 from datetime import datetime as dt
 import asyncio, subprocess, re, os, time
 
+PROGRESS_STICKER_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "assets",
+    "progress_sticker.tgs",
+)
+_progress_sticker_messages = {}
 
 
 async def chk_user(message, user_id):
@@ -248,6 +254,28 @@ async def progress_bar(current, total, *args):
         percentage = 0 if total == 0 else (current * 100) / total
         speed = 0 if diff == 0 else current / diff
         eta_seconds = 0 if speed == 0 else (total - current) / speed
+
+        sticker_key = (message.chat.id, message.id)
+        sticker_message = _progress_sticker_messages.get(sticker_key)
+        if percentage >= 100:
+            if sticker_message:
+                try:
+                    await sticker_message.delete()
+                except Exception as error:
+                    logger.warning("Could not remove progress sticker: %s", error)
+                finally:
+                    _progress_sticker_messages.pop(sticker_key, None)
+        elif sticker_message is None and os.path.isfile(PROGRESS_STICKER_PATH):
+            try:
+                sticker_message = await message._client.send_sticker(
+                    chat_id=message.chat.id,
+                    sticker=PROGRESS_STICKER_PATH,
+                    reply_to_message_id=message.id,
+                )
+                if sticker_message:
+                    _progress_sticker_messages[sticker_key] = sticker_message
+            except Exception as error:
+                logger.warning("Could not send progress sticker: %s", error)
 
         filename = os.path.basename(file_path) if file_path else "Unknown"
         extension = os.path.splitext(filename)[1][1:] if "." in filename else "unknown"
