@@ -5,7 +5,7 @@ import asyncio
 from pyrogram import filters, Client
 from safe_repo import app
 from config import API_ID, API_HASH
-from safe_repo.core.get_func import get_msg
+from safe_repo.core.get_func import get_msg, resolve_topic_destination
 from safe_repo.core.func import *
 from safe_repo.core.func import parse_telegram_link
 from safe_repo.core.mongo import db, plans_db
@@ -21,7 +21,12 @@ awaiting_thumbnail = set()
 
 
 
-@app.on_message(filters.regex(r'https?://[^\s]+') & ~filters.command("batch") & ~filters.reply)
+@app.on_message(
+    filters.regex(r'https?://[^\s]+')
+    & ~filters.command("batch")
+    & ~filters.reply
+    & ~filters.media
+)
 async def single_link(_, message):
     user_id = message.chat.id
     lol = await chk_user(message, user_id)
@@ -154,6 +159,7 @@ async def how_to_copy_command(_, message):
 • Send: `/batch`
 • Bot will ask for start link: `https://t.me/c/12345/100`
 • Bot will ask for end link: `https://t.me/c/12345/105`
+• Bot will ask whether to send files to a Telegram topic. Reply `Yes` and send the topic link, or reply `No` to keep the current destination.
 • Bot downloads messages 100-105 automatically
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -359,6 +365,49 @@ async def batch_link(_, message):
         await app.send_message(message.chat.id, "Invalid end link format. Please send a valid Telegram message link.")
         return
 
+    destination_chat_id = None
+    destination_thread_id = None
+    requester_id = message.from_user.id if message.from_user else user_id
+    answer_filter = filters.text & filters.user(requester_id)
+    try:
+        destination_choice = await app.ask(
+            message.chat.id,
+            text="Batch files ko kisi Telegram topic me bhejna hai? Reply **Yes** ya **No**.",
+            filters=answer_filter,
+            timeout=300,
+        )
+    except TimeoutError:
+        await app.send_message(message.chat.id, "Response nahi mila; batch start nahi kiya. Dobara /batch bhejein.")
+        return
+
+    answer = (destination_choice.text or "").strip().casefold()
+    if answer in {"yes", "y", "haan", "ha", "हां", "हाँ"}:
+        try:
+            topic_reply = await app.ask(
+                message.chat.id,
+                text="Ab destination Telegram topic ka link bhejein.",
+                filters=answer_filter,
+                timeout=300,
+            )
+        except TimeoutError:
+            await app.send_message(message.chat.id, "Topic link nahi mila; batch start nahi kiya.")
+            return
+
+        try:
+            destination_chat_id, destination_thread_id = await resolve_topic_destination(
+                app, topic_reply.text or ""
+            )
+        except ValueError as error:
+            logger.warning("Batch topic destination could not be resolved: %s", error)
+            await app.send_message(message.chat.id, f"Topic link use nahi ho saka: {error}")
+            return
+        await app.send_message(message.chat.id, "✅ Batch files selected topic me bheje jayenge.")
+    elif answer in {"no", "n", "nahi", "nahin", "नहीं"}:
+        await app.send_message(message.chat.id, "Theek hai, batch pehle ki tarah aapke configured destination me jayega.")
+    else:
+        await app.send_message(message.chat.id, "Sirf Yes ya No reply karein. Dobara /batch bhejein.")
+        return
+
     # Calculate total media to process
     total_messages = cl - cs + 1
 
@@ -443,7 +492,17 @@ async def batch_link(_, message):
                         # Keep this item pending during temporary network outages.
                         while True:
                             try:
-                                await get_msg(userbot, user_id, msg.id, url, 0, message, True)
+                                await get_msg(
+                                    userbot,
+                                    user_id,
+                                    msg.id,
+                                    url,
+                                    0,
+                                    message,
+                                    True,
+                                    destination_chat_id,
+                                    destination_thread_id,
+                                )
                                 break
                             except FloodWait as flood_wait:
                                 await msg.edit_text(
@@ -502,4 +561,3 @@ async def stop_batch(_, message):
         await app.send_message(message.chat.id, "Batch processing stopped.")
     else:
         await app.send_message(message.chat.id, "No active batch processing to stop.")
-

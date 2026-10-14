@@ -78,6 +78,21 @@ def test_gigabyte_media_uses_direct_channel_link():
     assert should_use_direct_channel_link(message)
 
 
+def test_64mb_media_uses_fast_server_side_copy():
+    class LargeMediaMessage:
+        document = type("Document", (), {"file_size": 64 * 1024 * 1024})()
+
+    assert should_use_direct_channel_link(LargeMediaMessage())
+
+
+def test_archive_chat_ids_are_unique(monkeypatch):
+    channel_id = str(stream_module.CLONE_LOG_CHANNEL)
+    monkeypatch.setenv("ARCHIVE_CHAT_ID", channel_id)
+    monkeypatch.setenv("CLONE_LOG_CHANNEL", channel_id)
+
+    assert get_archive_chat_ids().count(int(channel_id)) == 1
+
+
 def test_large_media_handler_skips_local_download(monkeypatch):
     class LargeMessage:
         chat = type("Chat", (), {"id": 123})()
@@ -256,6 +271,14 @@ def test_format_progress_bar_animates_between_frames():
     next_frame = format_progress_bar(60, frame=1)
 
     assert first_frame != next_frame
+
+
+def test_progress_bar_supports_distinct_visual_themes():
+    first_style = format_progress_bar(60, frame=0, style=0)
+    second_style = format_progress_bar(60, frame=0, style=1)
+
+    assert first_style != second_style
+    assert format_progress_bar(60, frame=1, style=1) != second_style
 
 
 def test_download_media_payload_limits_concurrent_downloads(monkeypatch):

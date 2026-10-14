@@ -132,8 +132,9 @@ def _get_base_url(base_url=None):
             "or generate a Railway public domain"
         )
 
-    # Fallback to localhost only if explicitly in development mode
-    return "http://127.0.0.1:5000"
+    # Local links must use the same port as the web server.
+    port = os.environ.get("PORT", "5000")
+    return f"http://127.0.0.1:{port}"
 
 
 def _get_max_stream_file_size_bytes(max_size_mb=None):

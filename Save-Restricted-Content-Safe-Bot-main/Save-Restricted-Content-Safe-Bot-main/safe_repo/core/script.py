@@ -68,6 +68,8 @@ HELP SECTION 📝
 • Use /batch command
 • Send start link: https://t.me/c/123456/100
 • Send end link: https://t.me/c/123456/105
+• Choose Yes to send the batch to a Telegram topic, then send its topic link.
+• Choose No to keep using your usual destination.
 • Bot will download messages 100-105
 
 4️⃣ Customize Output:
@@ -174,7 +176,7 @@ CMD_HELP_TXT = """
     Example: https://t.me/c/123456789/12345
 
  🔹 /batch - Download multiple messages in bulk
-    Usage: /batch then provide start and end links
+    Usage: /batch, provide start and end links, then choose the usual destination or a Telegram topic
     Example: Start: https://t.me/c/123456/100
              End: https://t.me/c/123456/105
     Result: Downloads messages 100-105

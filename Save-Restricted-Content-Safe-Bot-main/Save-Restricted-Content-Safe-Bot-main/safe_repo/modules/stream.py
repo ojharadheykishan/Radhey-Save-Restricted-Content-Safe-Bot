@@ -7,6 +7,7 @@ import asyncio
 import logging
 import mimetypes
 import os
+import secrets
 import time
 import uuid
 from datetime import datetime
@@ -21,19 +22,25 @@ from safe_repo.web.study import build_public_study_url
 
 logger = logging.getLogger(__name__)
 _MEDIA_DOWNLOAD_SEMAPHORE = asyncio.Semaphore(4)
-_PROGRESS_PALETTE = ("🟥", "🟧", "🟨", "🟩", "🟦", "🟪")
-_DEFAULT_DIRECT_LINK_THRESHOLD_MB = 256
+_PROGRESS_STYLES = (
+    (("🟥", "🟧", "🟨", "🟩", "🟦", "🟪"), "⬜", ("◐", "◓", "◑", "◒")),
+    (("🟦", "🟪", "🟦", "🟩"), "▫️", ("◇", "◆", "◈", "◆")),
+    (("🟩", "🟢", "🟩", "🟦"), "⬛", ("✦", "✧", "✦", "✧")),
+    (("🟪", "🩷", "🟦", "🩵"), "▫️", ("◉", "◎", "◉", "◎")),
+)
+_DEFAULT_DIRECT_LINK_THRESHOLD_MB = 64
 
 
-def format_progress_bar(percent, title="Processing", note="Please wait", frame=0):
-    """Create a compact Telegram-friendly progress message."""
+def format_progress_bar(percent, title="Processing", note="Please wait", frame=0, style=0):
+    """Create a colorful Telegram progress message using one of several visual styles."""
     percent = max(0, min(100, int(percent)))
-    filled = max(1, int(round(percent / 10)))
+    filled = int(round(percent / 10))
     empty = 10 - filled
-    offset = frame % len(_PROGRESS_PALETTE)
-    bar = "".join(_PROGRESS_PALETTE[(index + offset) % len(_PROGRESS_PALETTE)] for index in range(filled))
-    bar += "⬜" * empty
-    spinner = ("◐", "◓", "◑", "◒")[frame % 4]
+    palette, empty_block, spinner_frames = _PROGRESS_STYLES[style % len(_PROGRESS_STYLES)]
+    offset = frame % len(palette)
+    bar = "".join(palette[(index + offset) % len(palette)] for index in range(filled))
+    bar += empty_block * empty
+    spinner = spinner_frames[frame % len(spinner_frames)]
     return (
         f"{spinner} 🎬 {title}\n"
         f"{bar} {percent}%\n"
@@ -66,6 +73,7 @@ async def update_download_progress(current, total, progress_sender, progress_mes
         state["title"],
         state["note"],
         frame=state.get("frame", 0),
+        style=state.get("style", 0),
     )
     try:
         await app.edit_message_text(progress_sender, progress_message_id, text)
@@ -89,6 +97,7 @@ async def animate_download_status(progress_sender, progress_message_id, state):
                         state.get("title", "Media received"),
                         state.get("note", "Waiting for a download slot"),
                         frame=frame,
+                        style=state.get("style", 0),
                     ),
                 )
             except Exception as error:
@@ -123,7 +132,7 @@ def get_archive_chat_ids():
                 configured_ids.append(int(chunk))
             except ValueError:
                 configured_ids.append(chunk)
-    return configured_ids
+    return list(dict.fromkeys(configured_ids))
 
 
 def extract_stream_metadata(message, fallback_title=None):
@@ -228,7 +237,7 @@ def get_message_media_size(message):
 
 
 def should_use_direct_channel_link(message):
-    """Use a server-side Telegram copy for large files instead of downloading them."""
+    """Use a server-side Telegram copy for 64 MB+ files by default."""
     try:
         threshold_mb = max(1, int(os.environ.get(
             "STREAM_DIRECT_LINK_THRESHOLD_MB",
@@ -240,7 +249,7 @@ def should_use_direct_channel_link(message):
     return media_size is not None and media_size >= threshold_mb * 1024 * 1024
 
 
-async def download_media_payload(client, message, progress_sender=None, progress_message_id=None):
+async def download_media_payload(client, message, progress_sender=None, progress_message_id=None, progress_style=0):
     """Download media with bounded concurrency and a live status heartbeat."""
     file_name = build_local_file_name(message)
     media_file = None
@@ -251,6 +260,7 @@ async def download_media_payload(client, message, progress_sender=None, progress
         "title": "Media received",
         "note": "Waiting for a download slot",
         "finished": False,
+        "style": progress_style,
     }
     animation_task = None
     if progress_sender and progress_message_id:
@@ -288,7 +298,12 @@ async def download_media_payload(client, message, progress_sender=None, progress
             await app.edit_message_text(
                 progress_sender,
                 progress_message_id,
-                format_progress_bar(100, "Download complete", "Preparing public video link"),
+                format_progress_bar(
+                    100,
+                    "Download complete",
+                    "Preparing public video link",
+                    style=progress_style,
+                ),
             )
         except Exception:
             pass
@@ -545,9 +560,15 @@ async def handle_direct_media(client, message):
             return
 
         chat_id = message.chat.id
+        progress_style = secrets.randbelow(len(_PROGRESS_STYLES))
         status_message = await app.send_message(
             chat_id,
-            format_progress_bar(0, "Media received", "Waiting for a download slot"),
+            format_progress_bar(
+                0,
+                "Media received",
+                "Waiting for a download slot",
+                style=progress_style,
+            ),
         )
         logger.info(f"handle_direct_media: sent status message {status_message.id}")
 
@@ -555,7 +576,12 @@ async def handle_direct_media(client, message):
             await app.edit_message_text(
                 chat_id,
                 status_message.id,
-                format_progress_bar(45, "Large file detected", "Creating a Telegram link without downloading the file"),
+                format_progress_bar(
+                    45,
+                    "Large file detected",
+                    "Creating a Telegram link without downloading the file",
+                    style=progress_style,
+                ),
             )
             public_link = await build_direct_channel_stream_link(message)
             if public_link:
@@ -583,7 +609,7 @@ async def handle_direct_media(client, message):
                 await app.edit_message_text(
                     chat_id,
                     status_message.id,
-                    f"{format_progress_bar(100, 'Fast link ready', 'Telegram copied the file without a local download')}\n\n{reply_text}",
+                    f"{format_progress_bar(100, 'Fast link ready', 'Telegram copied the file without a local download', style=progress_style)}\n\n{reply_text}",
                 )
 
                 try:
@@ -615,6 +641,7 @@ async def handle_direct_media(client, message):
             message,
             progress_sender=chat_id,
             progress_message_id=status_message.id,
+            progress_style=progress_style,
         )
         if not media_file:
             logger.error(f"handle_direct_media: failed to download media")
@@ -635,7 +662,12 @@ async def handle_direct_media(client, message):
             await app.edit_message_text(
                 chat_id,
                 status_message.id,
-                format_progress_bar(70, "Download complete", "Generating public video link"),
+                format_progress_bar(
+                    70,
+                    "Download complete",
+                    "Generating public video link",
+                    style=progress_style,
+                ),
             )
         except Exception:
             pass
@@ -656,7 +688,12 @@ async def handle_direct_media(client, message):
             await app.edit_message_text(
                 chat_id,
                 status_message.id,
-                format_progress_bar(90, "Link generated", "Saving video details"),
+                format_progress_bar(
+                    90,
+                    "Link generated",
+                    "Saving video details",
+                    style=progress_style,
+                ),
             )
         except Exception:
             pass
@@ -706,7 +743,11 @@ async def handle_direct_media(client, message):
 
         text = build_stream_reply_text(public_link, study_url=study_url)
         logger.info(f"handle_direct_media: sending final reply message")
-        await app.edit_message_text(chat_id, status_message.id, f"{format_progress_bar(100, 'Video ready', 'Player and direct links generated')}\n\n{text}")
+        await app.edit_message_text(
+            chat_id,
+            status_message.id,
+            f"{format_progress_bar(100, 'Video ready', 'Player and direct links generated', style=progress_style)}\n\n{text}",
+        )
 
         try:
             os.remove(media_file)

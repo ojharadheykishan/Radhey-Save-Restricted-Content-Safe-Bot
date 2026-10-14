@@ -64,48 +64,6 @@
             <h1 class="font-display text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-3">Study Platform</h1>
             <p class="text-slate-200 text-lg max-w-2xl">Browse videos by subject, folder, category, and recent uploads in one clean place.</p>
 
-            {% if filter_summary.subject or filter_summary.date or filter_summary.q or filter_summary.folder or filter_summary.subfolder or filter_summary.playlist or filter_summary.media_type %}
-            <div class="glass-card inline-block px-4 py-2 rounded-full mt-4">
-                <span class="text-slate-300 text-sm">
-                    <i class="fas fa-filter mr-2 text-cyan"></i>
-                    Showing: {% if filter_summary.q %}Search "{{ filter_summary.q }}"{% endif %}{% if filter_summary.subject %} · {{ filter_summary.subject }}{% endif %}{% if filter_summary.folder %} · {{ filter_summary.folder }}{% endif %}{% if filter_summary.subfolder %} / {{ filter_summary.subfolder }}{% endif %}{% if filter_summary.playlist %} · {{ filter_summary.playlist }}{% endif %}{% if filter_summary.media_type %} · {{ filter_summary.media_type }}{% endif %}{% if filter_summary.date %} · {{ filter_summary.date }}{% endif %}
-                </span>
-            </div>
-            {% endif %}
-
-            <form method="get" action="/study" class="mt-6 flex flex-wrap gap-3">
-                <div class="flex-1 min-w-[200px] relative">
-                    <i class="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                    <input type="text" name="q" value="{{ request.args.get('q','') }}" placeholder="Search title / topic"
-                        class="w-full pl-10 pr-4 py-3 rounded-full bg-white/10 border border-white/20 text-white placeholder-slate-400 focus:outline-none focus:border-cyan focus:bg-white/15 backdrop-blur-sm transition-all duration-300" />
-                </div>
-                <input type="text" name="subject" value="{{ request.args.get('subject','') }}" placeholder="Subject"
-                    class="px-4 py-3 rounded-full bg-white/10 border border-white/20 text-white placeholder-slate-400 focus:outline-none focus:border-cyan focus:bg-white/15 backdrop-blur-sm w-32 transition-all duration-300" />
-                <div data-folder-filter class="flex flex-wrap gap-2">
-                    <select name="folder" aria-label="Filter by folder" class="min-w-36 px-4 py-3 rounded-full bg-slate-900 border border-white/20 text-white">
-                        <option value="">All folders</option>
-                        {% for folder in folder_tree %}<option value="{{ folder.name }}" {% if request.args.get('folder') == folder.name %}selected{% endif %}>{{ folder.name }}</option>{% endfor %}
-                    </select>
-                    <select name="subfolder" aria-label="Filter by subfolder" data-subfolder-filter class="min-w-36 px-4 py-3 rounded-full bg-slate-900 border border-white/20 text-white">
-                        <option value="">All subfolders</option>
-                        {% for folder in folder_tree %}{% for subfolder in folder.subfolders %}<option value="{{ subfolder.name }}" data-folder="{{ folder.name }}" {% if request.args.get('subfolder') == subfolder.name %}selected{% endif %}>{{ subfolder.name }}</option>{% endfor %}{% endfor %}
-                    </select>
-                </div>
-                <input type="text" name="date" value="{{ request.args.get('date','') }}" placeholder="Date"
-                    class="px-4 py-3 rounded-full bg-white/10 border border-white/20 text-white placeholder-slate-400 focus:outline-none focus:border-cyan focus:bg-white/15 backdrop-blur-sm w-36 hidden lg:block transition-all duration-300" />
-                <input type="text" name="playlist" value="{{ request.args.get('playlist','') }}" placeholder="Playlist" class="px-4 py-3 rounded-full bg-white/10 border border-white/20 text-white placeholder-slate-400 focus:outline-none focus:border-cyan focus:bg-white/15 backdrop-blur-sm w-40 transition-all duration-300" />
-                <select name="media_type" class="px-4 py-3 rounded-full bg-slate-900 border border-white/20 text-white">
-                    <option value="">All media</option>
-                    <option value="video" {% if request.args.get('media_type') == 'video' %}selected{% endif %}>Videos</option>
-                    <option value="pdf" {% if request.args.get('media_type') == 'pdf' %}selected{% endif %}>PDFs</option>
-                </select>
-                <button type="submit" class="px-6 py-3 rounded-full bg-white text-deep font-semibold hover:bg-slate-100 transition-all duration-300 hover:shadow-lg hover:shadow-white/20 hover:-translate-y-0.5">
-                    Filter
-                </button>
-                <a href="/study" class="px-6 py-3 rounded-full bg-white/10 border border-white/20 text-white font-semibold hover:bg-white/20 transition-all duration-300 text-center">
-                    Clear
-                </a>
-            </form>
         </div>
     </div>
 </section>

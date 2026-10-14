@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 import sys
@@ -103,6 +104,21 @@ def test_save_stream_file_uses_railway_public_domain(tmp_path, monkeypatch):
 
     assert result["player_url"].startswith("https://my-bot.up.railway.app/player/")
     assert result["stream_url"].startswith("https://my-bot.up.railway.app/stream/")
+
+
+def test_local_stream_links_use_configured_web_port(monkeypatch):
+    for name in (
+        "PUBLIC_BASE_URL",
+        "APP_URL",
+        "RAILWAY_PUBLIC_DOMAIN",
+        "RAILWAY_STATIC_URL",
+        "BASE_URL",
+        "RENDER_EXTERNAL_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("PORT", "8080")
+
+    assert media_links._get_base_url() == "http://127.0.0.1:8080"
 
 
 def test_save_stream_file_does_not_create_localhost_links_on_railway(tmp_path, monkeypatch):
@@ -421,3 +437,41 @@ def test_batch_media_publisher_adds_pdf_to_website_catalog(tmp_path, monkeypatch
     assert entries[0]["thumbnail_url"].endswith(f"/thumbnail/{entries[0]['token']}")
     assert entries[0]["approved"] is False
     assert entries[0]["date"] == "2024-05-06"
+
+
+def test_resolve_topic_destination_uses_forum_root_message():
+    from types import SimpleNamespace
+    from safe_repo.core.get_func import resolve_topic_destination
+
+    class FakeClient:
+        async def get_messages(self, chat_id, message_id):
+            assert chat_id == -1003724331443
+            assert message_id == 912
+            return SimpleNamespace(reply_to_top_message_id=877)
+
+        async def get_chat(self, chat_id):
+            return SimpleNamespace(id=chat_id)
+
+    destination = asyncio.run(
+        resolve_topic_destination(FakeClient(), "https://t.me/c/3724331443/877/912")
+    )
+
+    assert destination == (-1003724331443, 877)
+
+
+def test_resolve_topic_destination_accepts_topic_starter_link():
+    from types import SimpleNamespace
+    from safe_repo.core.get_func import resolve_topic_destination
+
+    class FakeClient:
+        async def get_messages(self, _chat_id, message_id):
+            return SimpleNamespace(id=message_id)
+
+        async def get_chat(self, chat_id):
+            return SimpleNamespace(id=chat_id)
+
+    destination = asyncio.run(
+        resolve_topic_destination(FakeClient(), "https://t.me/c/3724331443/877")
+    )
+
+    assert destination == (-1003724331443, 877)

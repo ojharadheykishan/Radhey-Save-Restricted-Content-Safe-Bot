@@ -90,14 +90,13 @@ def test_home_route_renders_filtered_catalog_for_subject_date_queries(monkeypatc
 
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert "Showing results for" in html
     assert "Physics" in html
     assert "Alpha" in html
     assert 'src="/thumbnail/one"' in html
-    assert 'aria-label="Filter by folder"' in html
-    assert 'aria-label="Filter by subfolder"' in html
+    assert 'name="q"' not in html
+    assert 'aria-label="Filter by folder"' not in html
     assert "Study-By Radhey" in html
-    assert "Thumbnail view" in html
+    assert html.index('id="folder-browser"') < html.index("Featured Videos")
     assert 'data-folder-view-option="list"' not in html
 
 
@@ -163,7 +162,7 @@ def test_public_library_groups_media_by_source_date(tmp_path, monkeypatch):
     assert html.index("2026-04-03") < html.index("2026-04-01")
 
 
-def test_folder_selector_exposes_existing_subfolder_and_keeps_filters(tmp_path, monkeypatch):
+def test_folder_thumbnail_cards_remain_browsable_without_filter_controls(tmp_path, monkeypatch):
     catalog_path = tmp_path / "catalog.json"
     catalog_path.write_text(json.dumps([
         {"token": "one", "title": "Mechanics", "subject": "Physics", "description": "Folder: Physics\nSubfolder: Mechanics"},
@@ -174,8 +173,11 @@ def test_folder_selector_exposes_existing_subfolder_and_keeps_filters(tmp_path, 
     html = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert '<option value="Physics" selected>' in html
-    assert '<option value="Mechanics" data-folder="Physics" selected>' in html
+    assert 'name="q"' not in html
+    assert 'aria-label="Filter by folder"' not in html
+    assert 'href="/?folder=Physics"' in html
+    assert 'href="/?folder=Physics&amp;subfolder=Mechanics"' in html
+    assert "Thumbnail view" in html
 
 
 def test_folder_tree_includes_representative_video_thumbnails(tmp_path):

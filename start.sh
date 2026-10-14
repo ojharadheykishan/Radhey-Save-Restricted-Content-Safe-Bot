@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/Save-Restricted-Content-Safe-Bot-main/Save-Restricted-Content-Safe-Bot-main"
+export PORT="${PORT:-8080}"
 
 python -m safe_repo &
 bot_pid=$!

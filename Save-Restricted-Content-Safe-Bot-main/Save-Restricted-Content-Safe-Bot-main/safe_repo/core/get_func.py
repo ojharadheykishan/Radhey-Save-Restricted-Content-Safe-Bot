@@ -10,7 +10,7 @@ from datetime import datetime as dt
 import logging
 from telethon import events, Button
 from pyrogram import filters
-from pyrogram.errors import ChannelBanned, ChannelInvalid, ChannelPrivate, ChatIdInvalid, ChatInvalid, PeerIdInvalid
+from pyrogram.errors import ChannelBanned, ChannelInvalid, ChannelPrivate, ChatIdInvalid, ChatInvalid, PeerIdInvalid, RPCError
 from pyrogram.enums import MessageMediaType
 from pyrogram.types import Message
 from safe_repo import app
@@ -27,6 +27,32 @@ from config import LOG_GROUP, CLONE_LOG_CHANNEL
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+async def resolve_topic_destination(client, topic_link):
+    """Resolve a Telegram forum-topic link to its chat and root message id."""
+    chat_id, message_id, thread_id, is_story = parse_telegram_link(topic_link)
+    if is_story or chat_id is None or message_id is None:
+        raise ValueError("That doesn't look like a valid Telegram topic link.")
+
+    try:
+        topic_message = await client.get_messages(chat_id, message_id)
+        target_chat = await client.get_chat(chat_id)
+    except RPCError as error:
+        raise ValueError(
+            "The bot cannot access that group/topic. Add it to the group and check the link."
+        ) from error
+
+    if not topic_message or getattr(topic_message, "empty", False):
+        raise ValueError("I couldn't find that message. Check the topic link and bot access.")
+
+    root_message_id = (
+        thread_id
+        or getattr(topic_message, "reply_to_top_message_id", None)
+        or topic_message.id
+    )
+
+    return target_chat.id, root_message_id
 
 
 async def delete_message_after_1h(chat_id, message_id):
@@ -192,7 +218,9 @@ async def get_msg(
     msg_link,
     i,
     message,
-    is_batch=False):
+    is_batch=False,
+    destination_chat_id=None,
+    destination_thread_id=None):
     edit = ""
     chat = ""
     round_message = False
@@ -308,11 +336,25 @@ async def get_msg(
                     return None
 
             new_file_name = os.path.basename(file) if file else 'Unknown'
-            target_chat_id = user_chat_ids.get(chatx, chatx)
+            target_chat_id = (
+                destination_chat_id
+                if destination_chat_id is not None
+                else user_chat_ids.get(chatx, chatx)
+            )
+            destination_reply_kwargs = (
+                {"reply_to_message_id": destination_thread_id}
+                if destination_thread_id is not None
+                else {}
+            )
 
             if msg.media == MessageMediaType.WEB_PAGE:
                 edit = await app.edit_message_text(target_chat_id, edit_id, "Cloning...")
-                safe_repo = await app.send_message(sender, f"{msg.text.markdown}")
+                web_page_chat_id = destination_chat_id if destination_chat_id is not None else sender
+                safe_repo = await app.send_message(
+                    web_page_chat_id,
+                    f"{msg.text.markdown}",
+                    **destination_reply_kwargs,
+                )
                 if msg.pinned_message:
                     try:
                         await safe_repo.pin(both_sides=True)
@@ -358,6 +400,7 @@ async def get_msg(
                         chat_id=target_chat_id,
                         photo=file,
                         caption=caption,
+                        **destination_reply_kwargs,
                         progress=progress_bar,
                         progress_args=(
                             '**__Uploading...__**\n',
@@ -431,6 +474,7 @@ async def get_msg(
                             document=file,
                             caption=caption,
                             thumb=thumb_path,
+                            **destination_reply_kwargs,
                             progress=progress_bar,
                             progress_args=(
                                 '**`Uploading PDF...`**\n',
@@ -446,6 +490,7 @@ async def get_msg(
                             document=file,
                             caption=caption,
                             thumb=thumb_path,
+                            **destination_reply_kwargs,
                             progress=progress_bar,
                             progress_args=(
                                 '**`Uploading document...`**\n',
@@ -523,6 +568,7 @@ async def get_msg(
                         video=file,
                         caption=caption,
                         thumb=thumb_path,
+                        **destination_reply_kwargs,
                         progress=progress_bar,
                         progress_args=(
                             '**`Uploading video...`**\n',
@@ -668,15 +714,42 @@ async def get_msg(
         try:
             # Use the robust parser result for public links too (handles topics)
             pub_chat = parsed_chat if parsed_chat is not None else msg_link.split("/")[-2]
-            await copy_message_with_chat_id(app, sender, pub_chat, msg_id, is_batch, thread_id)
+            await copy_message_with_chat_id(
+                app,
+                sender,
+                pub_chat,
+                msg_id,
+                is_batch,
+                thread_id,
+                destination_chat_id,
+                destination_thread_id,
+            )
             await edit.delete()
         except Exception as e:
             await app.edit_message_text(sender, edit_id, f'Failed to save: `{msg_link}`\n\nError: {str(e)}')
         return None
 
 
-async def copy_message_with_chat_id(client, sender, chat_id, message_id, is_batch=False, thread_id=None):
-    target_chat_id = user_chat_ids.get(sender, sender)
+async def copy_message_with_chat_id(
+    client,
+    sender,
+    chat_id,
+    message_id,
+    is_batch=False,
+    thread_id=None,
+    destination_chat_id=None,
+    destination_thread_id=None,
+):
+    target_chat_id = (
+        destination_chat_id
+        if destination_chat_id is not None
+        else user_chat_ids.get(sender, sender)
+    )
+    destination_reply_kwargs = (
+        {"reply_to_message_id": destination_thread_id}
+        if destination_thread_id is not None
+        else {}
+    )
 
     try:
         # For supergroup topics/threads, Pyrogram needs the thread id to fetch
@@ -705,15 +778,40 @@ async def copy_message_with_chat_id(client, sender, chat_id, message_id, is_batc
 
         if msg.media:
             if msg.media == MessageMediaType.VIDEO:
-                result = await client.send_video(target_chat_id, msg.video.file_id, caption=caption)
+                result = await client.send_video(
+                    target_chat_id,
+                    msg.video.file_id,
+                    caption=caption,
+                    **destination_reply_kwargs,
+                )
             elif msg.media == MessageMediaType.DOCUMENT:
-                result = await client.send_document(target_chat_id, msg.document.file_id, caption=caption)
+                result = await client.send_document(
+                    target_chat_id,
+                    msg.document.file_id,
+                    caption=caption,
+                    **destination_reply_kwargs,
+                )
             elif msg.media == MessageMediaType.PHOTO:
-                result = await client.send_photo(target_chat_id, msg.photo.file_id, caption=caption)
+                result = await client.send_photo(
+                    target_chat_id,
+                    msg.photo.file_id,
+                    caption=caption,
+                    **destination_reply_kwargs,
+                )
             else:
-                result = await client.copy_message(target_chat_id, chat_id, message_id)
+                result = await client.copy_message(
+                    target_chat_id,
+                    chat_id,
+                    message_id,
+                    **destination_reply_kwargs,
+                )
         else:
-            result = await client.copy_message(target_chat_id, chat_id, message_id)
+            result = await client.copy_message(
+                target_chat_id,
+                chat_id,
+                message_id,
+                **destination_reply_kwargs,
+            )
 
         if result:
             if target_chat_id != sender and target_chat_id != LOG_GROUP:
@@ -859,4 +957,3 @@ def get_user_caption_preference(user_id):
 sessions = {}
 
 SET_PIC = "settings.jpg"
-
